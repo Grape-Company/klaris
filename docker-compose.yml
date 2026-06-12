@@ -1,0 +1,53 @@
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: deepwoken
+      POSTGRES_PASSWORD: deepwoken
+      POSTGRES_DB: deepwoken
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U deepwoken"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+asyncpg://deepwoken:deepwoken@db:5432/deepwoken
+      DATABASE_SYNC_URL: postgresql://deepwoken:deepwoken@db:5432/deepwoken
+      MEDIAWIKI_API_URL: https://deepwoken.fandom.com/api.php
+      CRAWLER_USER_AGENT: DeepwokenRAGBot/0.1
+      CRAWLER_DELAY_SECONDS: 0.5
+      CRAWLER_MAX_RETRIES: 3
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL}
+      EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS}
+      LLM_MODEL: ${LLM_MODEL}
+      LLM_TEMPERATURE: ${LLM_TEMPERATURE}
+      RAG_MAX_TOKENS: ${RAG_MAX_TOKENS}
+      RAG_REQUEST_TIMEOUT_SECONDS: ${RAG_REQUEST_TIMEOUT_SECONDS}
+      RAG_MAX_ANSWER_CHARS: ${RAG_MAX_ANSWER_CHARS}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./app:/app/app
+      - ./migrations:/app/migrations
+      - ./alembic.ini:/app/alembic.ini
+    command:
+      [
+        "sh",
+        "-c",
+        "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload",
+      ]
+
+volumes:
+  pgdata:

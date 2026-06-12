@@ -2,8 +2,13 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
+    environment: str = "development"
+    admin_api_key: str = ""
+
     database_url: str = "postgresql+asyncpg://deepwoken:deepwoken@localhost:5432/deepwoken"
     database_sync_url: str = "postgresql://deepwoken:deepwoken@localhost:5432/deepwoken"
+    database_ssl: bool = False
+    database_ssl_verify: bool = True
 
     mediawiki_api_url: str = "https://deepwoken.fandom.com/api.php"
     crawler_user_agent: str = "DeepwokenRAGBot/0.1"
@@ -26,6 +31,7 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
     log_level: str = "INFO"
+    enable_docs: bool = True
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

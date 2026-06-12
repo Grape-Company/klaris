@@ -1,0 +1,53 @@
+services:
+  - type: web
+    name: deepwoken-rag-api
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: ENABLE_DOCS
+        value: false
+      - key: DATABASE_SSL
+        value: true
+      - key: DATABASE_SSL_VERIFY
+        value: false
+      - key: MEDIAWIKI_API_URL
+        value: https://deepwoken.fandom.com/api.php
+      - key: CRAWLER_USER_AGENT
+        value: DeepwokenRAGBot/0.1
+      - key: CRAWLER_DELAY_SECONDS
+        value: "0.5"
+      - key: CRAWLER_MAX_RETRIES
+        value: "3"
+      - key: CRAWLER_TIMEOUT_SECONDS
+        value: "30"
+      - key: OPENAI_BASE_URL
+        value: https://integrate.api.nvidia.com/v1
+      - key: EMBEDDING_MODEL
+        value: nvidia/llama-nemotron-embed-1b-v2
+      - key: EMBEDDING_DIMENSIONS
+        value: "1536"
+      - key: LLM_MODEL
+        value: openai/gpt-oss-20b
+      - key: LLM_TEMPERATURE
+        value: "1"
+      - key: RAG_TOP_K
+        value: "8"
+      - key: RAG_MAX_TOKENS
+        value: "4096"
+      - key: RAG_REQUEST_TIMEOUT_SECONDS
+        value: "30"
+      - key: RAG_MAX_ANSWER_CHARS
+        value: "1800"
+      - key: LOG_LEVEL
+        value: INFO
+      - key: ADMIN_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_SYNC_URL
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false

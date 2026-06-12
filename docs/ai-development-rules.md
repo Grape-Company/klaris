@@ -15,3 +15,5 @@
 13. Não fazer scraping agressivo.
 14. Não usar conhecimento externo na resposta da IA.
 15. Se faltar informação, retornar que não foi encontrado na base.
+16. Não deixar rotas administrativas públicas.
+17. Não commitar `.env`, senhas de banco ou chaves NVIDIA/OpenAI.

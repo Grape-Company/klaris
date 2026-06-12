@@ -10,6 +10,16 @@ O client usa `https://deepwoken.fandom.com/api.php` com `User-Agent` configuráv
 - `list_categories`: usa `action=query&list=allcategories`.
 - `list_category_members`: usa `action=query&list=categorymembers`.
 
+## Segurança
+
+Todas as rotas HTTP de ingestão exigem:
+
+```text
+X-Admin-Api-Key: <ADMIN_API_KEY>
+```
+
+Isso evita que usuários públicos disparem ingestões e consumam banco/API de IA.
+
 ## Paginação e rate limit
 
 O client respeita os campos `continue` da API e aplica atraso configurado por `CRAWLER_DELAY_SECONDS`. Requisições têm retry com backoff exponencial e timeout configurável.

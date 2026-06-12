@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_session
+from app.core.security import require_admin
 from app.modules.ingestion.schemas import (
     IngestionCategoryRequest,
     IngestionCategoryResponse,
@@ -13,7 +14,11 @@ from app.modules.ingestion.schemas import (
 )
 from app.modules.ingestion.service import IngestionService
 
-router = APIRouter(prefix="/api/ingestion", tags=["ingestion"])
+router = APIRouter(
+    prefix="/api/ingestion",
+    tags=["ingestion"],
+    dependencies=[Depends(require_admin)],
+)
 
 
 @router.post("/run", response_model=IngestionRunResponse)

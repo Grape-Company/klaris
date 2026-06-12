@@ -88,6 +88,10 @@ docker compose up -d db
 
 O bot deve ser uma aplicação separada que chama esta API. Veja [docs/discord-bot.md](docs/discord-bot.md).
 
+## Deploy
+
+Para Render + Supabase, veja [docs/deployment.md](docs/deployment.md).
+
 Exemplo:
 
 ```bash

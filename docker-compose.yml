@@ -18,8 +18,13 @@ services:
   app:
     build: .
     environment:
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      ADMIN_API_KEY: ${ADMIN_API_KEY}
+      ENABLE_DOCS: ${ENABLE_DOCS:-true}
       DATABASE_URL: postgresql+asyncpg://deepwoken:deepwoken@db:5432/deepwoken
       DATABASE_SYNC_URL: postgresql://deepwoken:deepwoken@db:5432/deepwoken
+      DATABASE_SSL: "false"
+      DATABASE_SSL_VERIFY: "true"
       MEDIAWIKI_API_URL: https://deepwoken.fandom.com/api.php
       CRAWLER_USER_AGENT: DeepwokenRAGBot/0.1
       CRAWLER_DELAY_SECONDS: 0.5

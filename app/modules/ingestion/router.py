@@ -30,7 +30,7 @@ async def run_ingestion(
     return await service.run(namespace=request.namespace, limit=request.limit)
 
 
-@router.post("/pages/{title}", response_model=IngestionPageResponse)
+@router.post("/pages/{title:path}", response_model=IngestionPageResponse)
 async def ingest_page(
     title: str,
     session: AsyncSession = Depends(get_session),

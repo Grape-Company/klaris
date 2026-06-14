@@ -150,6 +150,24 @@ async def test_ask_extracts_query_when_rewrite_returns_tool_json() -> None:
 
 
 @pytest.mark.asyncio
+async def test_ask_retries_search_rewrite_when_first_query_is_not_canonical() -> None:
+    retriever = FakeRetriever()
+    agent = FakeKlarisAgent(
+        retriever=retriever,
+        responses=[
+            FakeCompletion("llave del duque"),
+            FakeCompletion("Duke's Key"),
+            FakeCompletion("Duke's Key is described by the retrieved archive result."),
+        ],
+    )
+
+    response = await agent.ask("¿Cómo puedo conseguir la llave del duque?", top_k=8)
+
+    assert retriever.calls == [("Duke's Key", 8)]
+    assert "Duke's Key" in response.response
+
+
+@pytest.mark.asyncio
 async def test_ask_returns_not_found_when_model_answer_is_empty() -> None:
     retriever = FakeRetriever()
     agent = FakeKlarisAgent(

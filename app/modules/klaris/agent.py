@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 from collections.abc import Sequence
 from typing import Any
 
@@ -35,6 +36,11 @@ Translate non-English wording into likely English Deepwoken terminology.
 Correct obvious spelling variants when a canonical term is likely.
 If the intended term is uncertain, return the closest likely English term plus
 the original important term.
+Do not answer the question. Do not add explanations. Do not use quotes."""
+STRICT_SEARCH_QUERY_SYSTEM_PROMPT = """You fix failed Deepwoken Wiki search queries.
+
+Return only one concise English search query using likely canonical Deepwoken
+Wiki terminology. Translate any non-English words into English game/wiki terms.
 Do not answer the question. Do not add explanations. Do not use quotes."""
 
 
@@ -116,6 +122,32 @@ def looks_like_text_tool_call(value: str) -> bool:
         and any(marker in normalized for marker in search_markers)
         and ("{" in value or "tool" in normalized)
     )
+
+
+def should_retry_search_rewrite(original_question: str, rewritten_query: str) -> bool:
+    original_tokens = _meaningful_tokens(original_question)
+    rewritten_tokens = _meaningful_tokens(rewritten_query)
+    if not original_tokens or not rewritten_tokens:
+        return False
+
+    original_has_translation_signal = (
+        any(not char.isascii() for char in original_question)
+        or "¿" in original_question
+        or "¡" in original_question
+    )
+    if not original_has_translation_signal:
+        return False
+
+    overlap = len(rewritten_tokens.intersection(original_tokens)) / len(rewritten_tokens)
+    return overlap >= 0.6
+
+
+def _meaningful_tokens(value: str) -> set[str]:
+    return {
+        token.casefold()
+        for token in re.findall(r"[A-Za-zÀ-ÿ']+", value)
+        if len(token) > 2
+    }
 
 
 class KlarisAgent:
@@ -207,18 +239,41 @@ class KlarisAgent:
 
         return assistant_message.content or ""
 
+    async def _rewrite_search_query(self, messages: list[ChatCompletionMessageParam]) -> str:
+        response = await self._chat_completion(messages, tool_choice="none")
+        rewritten = response.choices[0].message.content or ""
+        return clean_rewritten_search_query(rewritten, fallback="")
+
     async def _rewrite_question_for_search(self, question: str) -> str:
         messages: list[ChatCompletionMessageParam] = [
             {"role": "system", "content": ASK_SEARCH_QUERY_SYSTEM_PROMPT},
             {"role": "user", "content": question},
         ]
         try:
-            response = await self._chat_completion(messages, tool_choice="none")
+            search_query = await self._rewrite_search_query(messages)
         except RAGError:
             return question
 
-        rewritten = response.choices[0].message.content or ""
-        return clean_rewritten_search_query(rewritten, fallback=question)
+        search_query = search_query or question
+        if not should_retry_search_rewrite(question, search_query):
+            return search_query
+
+        strict_messages: list[ChatCompletionMessageParam] = [
+            {"role": "system", "content": STRICT_SEARCH_QUERY_SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": (
+                    f"Original user question:\n{question}\n\n"
+                    f"Previous search query that may not be canonical English:\n{search_query}"
+                ),
+            },
+        ]
+        try:
+            strict_query = await self._rewrite_search_query(strict_messages)
+        except RAGError:
+            return search_query
+
+        return strict_query or search_query
 
     async def chat(self, message: str, top_k: int = 8) -> KlarisResponse:
         if greeting_answer := small_talk_answer(message):

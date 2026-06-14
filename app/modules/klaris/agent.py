@@ -1,4 +1,5 @@
 import asyncio
+import json
 from collections.abc import Sequence
 from typing import Any
 
@@ -18,7 +19,6 @@ from app.modules.klaris.tools import (
 )
 from app.modules.rag.query import (
     answer_indicates_not_found,
-    needs_knowledge_search,
     not_found_answer,
     small_talk_answer,
 )
@@ -26,6 +26,7 @@ from app.modules.rag.retriever import RetrievedChunk, Retriever
 from app.modules.rag.source_selection import filter_evidence_chunks, select_source_chunks
 
 TRUNCATION_SUFFIX = "\n\n[resposta truncada]"
+MAX_TOOL_CALL_ROUNDS = 3
 ASK_SEARCH_QUERY_SYSTEM_PROMPT = """You rewrite Deepwoken questions into search queries.
 
 Return only one concise English search query for the Deepwoken Wiki archive.
@@ -58,6 +59,10 @@ def collect_sources(raw_chunks: Sequence[RetrievedChunk]) -> list[SourceInfo]:
 
 
 def clean_rewritten_search_query(value: str, fallback: str) -> str:
+    extracted_query = extract_text_tool_query(value)
+    if extracted_query:
+        return extracted_query
+
     query = " ".join(value.split()).strip(" \"'`?.!,")
     prefixes = (
         "search query:",
@@ -75,6 +80,44 @@ def clean_rewritten_search_query(value: str, fallback: str) -> str:
     return query or fallback
 
 
+def extract_text_tool_query(value: str) -> str | None:
+    start = value.find("{")
+    end = value.rfind("}")
+    if start == -1 or end <= start:
+        return None
+
+    try:
+        payload = json.loads(value[start : end + 1])
+    except json.JSONDecodeError:
+        return None
+
+    query = payload.get("query") if isinstance(payload, dict) else None
+    if not isinstance(query, str):
+        return None
+
+    cleaned = " ".join(query.split()).strip(" \"'`?.!,")
+    return cleaned or None
+
+
+def looks_like_text_tool_call(value: str) -> bool:
+    normalized = " ".join(value.casefold().split())
+    if not normalized:
+        return False
+
+    tool_markers = (
+        "we need to call search tool",
+        "call search tool",
+        "search_knowledge_base",
+        '"query"',
+    )
+    search_markers = ("search tool", "search_knowledge_base", '"query"')
+    return (
+        any(marker in normalized for marker in tool_markers)
+        and any(marker in normalized for marker in search_markers)
+        and ("{" in value or "tool" in normalized)
+    )
+
+
 class KlarisAgent:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -90,15 +133,18 @@ class KlarisAgent:
         tool_choice: str = "auto",
     ) -> ChatCompletion:
         try:
+            kwargs: dict[str, Any] = {
+                "model": settings.llm_model,
+                "messages": messages,
+                "temperature": settings.llm_temperature,
+                "max_tokens": settings.rag_max_tokens,
+            }
+            if tool_choice != "none":
+                kwargs["tools"] = TOOL_DEFINITIONS
+                kwargs["tool_choice"] = tool_choice
+
             return await asyncio.wait_for(
-                self.llm_client.chat.completions.create(
-                    model=settings.llm_model,  # type: ignore[call-overload]
-                    messages=messages,
-                    tools=TOOL_DEFINITIONS,
-                    tool_choice=tool_choice,
-                    temperature=settings.llm_temperature,
-                    max_tokens=settings.rag_max_tokens,
-                ),
+                self.llm_client.chat.completions.create(**kwargs),
                 timeout=settings.rag_request_timeout_seconds,
             )
         except TimeoutError as exc:
@@ -113,7 +159,12 @@ class KlarisAgent:
         all_chunks: list[RetrievedChunk],
         top_k: int,
     ) -> str:
-        while assistant_message.tool_calls:
+        rounds = 0
+        while getattr(assistant_message, "tool_calls", None):
+            rounds += 1
+            if rounds > MAX_TOOL_CALL_ROUNDS:
+                return ""
+
             messages.append(
                 {
                     "role": "assistant",
@@ -173,23 +224,7 @@ class KlarisAgent:
         if greeting_answer := small_talk_answer(message):
             return KlarisResponse(response=greeting_answer, sources=[])
 
-        if needs_knowledge_search(message):
-            return await self.ask(message, top_k)
-
-        messages: list[ChatCompletionMessageParam] = [
-            {"role": "system", "content": KLARIS_SYSTEM_PROMPT},
-            {"role": "user", "content": message},
-        ]
-
-        all_chunks: list[RetrievedChunk] = []
-
-        response = await self._chat_completion(messages, tool_choice="none")
-        answer = await self._run_tool_loop(response.choices[0].message, messages, all_chunks, top_k)
-
-        answer = truncate_answer(answer, settings.rag_max_answer_chars)
-        sources = collect_sources(all_chunks) if all_chunks else []
-
-        return KlarisResponse(response=answer, sources=sources)
+        return await self.ask(message, top_k)
 
     async def ask(self, question: str, top_k: int = 8) -> KlarisResponse:
         search_query = await self._rewrite_question_for_search(question)
@@ -236,9 +271,28 @@ class KlarisAgent:
         ]
 
         response = await self._chat_completion(messages, tool_choice="none")
-        answer = response.choices[0].message.content or ""
+        answer = (response.choices[0].message.content or "").strip()
+        if looks_like_text_tool_call(answer):
+            messages.extend(
+                [
+                    {"role": "assistant", "content": answer},
+                    {
+                        "role": "user",
+                        "content": (
+                            "Do not call, describe, or print tool calls. Use the ARCHIVE RESULTS "
+                            "already provided above and answer the original question. If those "
+                            "results do not answer it, use the required not-found sentence."
+                        ),
+                    },
+                ]
+            )
+            response = await self._chat_completion(messages, tool_choice="none")
+            answer = (response.choices[0].message.content or "").strip()
 
         answer = truncate_answer(answer, settings.rag_max_answer_chars)
+        if not answer or looks_like_text_tool_call(answer):
+            return KlarisResponse(response=not_found_answer(question), sources=[])
+
         if answer_indicates_not_found(answer):
             return KlarisResponse(response=answer, sources=[])
 

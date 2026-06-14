@@ -111,3 +111,91 @@ async def test_chat_routes_deepwoken_questions_through_internal_ask() -> None:
 
     assert retriever.calls == [("Shrine of Order", 8)]
     assert "Shrine of Order" in response.response
+
+
+@pytest.mark.asyncio
+async def test_ask_retries_instead_of_returning_text_tool_call() -> None:
+    retriever = FakeRetriever()
+    agent = FakeKlarisAgent(
+        retriever=retriever,
+        responses=[
+            FakeCompletion("Duke's Key"),
+            FakeCompletion('We need to call search tool.\n{"query": "Duke\'s Key Deepwoken"}'),
+            FakeCompletion("Duke's Key is handled by the archive result, not a visible tool call."),
+        ],
+    )
+
+    response = await agent.ask("what is Duke's Key?", top_k=8)
+
+    assert "We need to call search tool" not in response.response
+    assert '{"query"' not in response.response
+    assert "Duke's Key" in response.response
+
+
+@pytest.mark.asyncio
+async def test_ask_extracts_query_when_rewrite_returns_tool_json() -> None:
+    retriever = FakeRetriever()
+    agent = FakeKlarisAgent(
+        retriever=retriever,
+        responses=[
+            FakeCompletion('We need to call search tool.\n{"query": "Duke\'s Key Deepwoken"}'),
+            FakeCompletion("Duke's Key is described by the retrieved archive result."),
+        ],
+    )
+
+    response = await agent.ask("what is Duke's Key?", top_k=8)
+
+    assert retriever.calls == [("Duke's Key Deepwoken", 8)]
+    assert "Duke's Key" in response.response
+
+
+@pytest.mark.asyncio
+async def test_ask_returns_not_found_when_model_answer_is_empty() -> None:
+    retriever = FakeRetriever()
+    agent = FakeKlarisAgent(
+        retriever=retriever,
+        responses=[
+            FakeCompletion("Duke's Key"),
+            FakeCompletion(""),
+        ],
+    )
+
+    response = await agent.ask("what is Duke's Key?", top_k=8)
+
+    assert response.response == "I could not find that information in the current archive."
+    assert response.sources == []
+
+
+@pytest.mark.asyncio
+async def test_chat_routes_text_tool_call_to_internal_ask() -> None:
+    retriever = FakeRetriever()
+    agent = FakeKlarisAgent(
+        retriever=retriever,
+        responses=[
+            FakeCompletion('We need to call search tool.\n{"query": "Duke\'s Key Deepwoken"}'),
+            FakeCompletion("Duke's Key is described by the retrieved archive result."),
+        ],
+    )
+
+    response = await agent.chat("Duke's Key", top_k=8)
+
+    assert retriever.calls == [("Duke's Key Deepwoken", 8)]
+    assert "We need to call search tool" not in response.response
+    assert "Duke's Key" in response.response
+
+
+@pytest.mark.asyncio
+async def test_chat_returns_not_found_when_model_answer_is_empty() -> None:
+    retriever = FakeRetriever()
+    agent = FakeKlarisAgent(
+        retriever=retriever,
+        responses=[
+            FakeCompletion("obscure Deepwoken detail"),
+            FakeCompletion(""),
+        ],
+    )
+
+    response = await agent.chat("tell me something obscure", top_k=8)
+
+    assert response.response == "I could not find that information in the current archive."
+    assert response.sources == []

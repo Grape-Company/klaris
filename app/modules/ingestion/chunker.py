@@ -177,7 +177,7 @@ def _split_large_paragraph(
             chunk_content = " ".join(buffer)
             chunks.append(_make_chunk(page_title, heading, chunk_content, index))
             index += 1
-            overlap = _compute_overlap(buffer, CHUNK_OVERLAP_TOKENS // 2)
+            overlap = _compute_overlap(buffer, CHUNK_OVERLAP_TOKENS)
             buffer = overlap
             buffer_tokens = _count_tokens(" ".join(overlap))
             buffer.append(sentence)

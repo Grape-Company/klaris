@@ -115,11 +115,8 @@ def small_talk_answer(question: str) -> str | None:
 def preferred_language(question: str) -> Language:
     normalized = re.sub(r"[^a-zA-ZÀ-ÿ\s]", " ", question.lower())
     compact = " ".join(normalized.split())
-    words = set(compact.split())
 
     if any(marker in compact for marker in PORTUGUESE_MARKERS):
-        return "pt"
-    if words & PORTUGUESE_MARKERS:
         return "pt"
     return "en"
 

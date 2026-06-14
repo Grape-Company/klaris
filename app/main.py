@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from app.core.config import settings
 from app.core.logging import setup_logging
 from app.modules.ingestion.router import router as ingestion_router
+from app.modules.klaris.router import router as klaris_router
 from app.modules.rag.router import router as rag_router
 from app.modules.wiki.router import router as wiki_router
 
@@ -29,6 +30,7 @@ app = FastAPI(
 app.include_router(wiki_router)
 app.include_router(ingestion_router)
 app.include_router(rag_router)
+app.include_router(klaris_router)
 
 
 @app.get("/health")

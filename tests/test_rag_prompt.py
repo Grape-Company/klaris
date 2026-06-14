@@ -32,6 +32,20 @@ def test_system_prompt_does_not_seed_portuguese_flavor_quote() -> None:
     assert "Poucos compreendem" not in SYSTEM_PROMPT
 
 
+def test_klaris_prompt_forbids_unverified_deepwoken_facts() -> None:
+    from app.modules.klaris.prompt import KLARIS_SYSTEM_PROMPT
+
+    normalized_prompt = " ".join(KLARIS_SYSTEM_PROMPT.split())
+
+    assert (
+        "never answer Deepwoken-specific factual questions without archive evidence"
+        in normalized_prompt
+    )
+    assert "Do not rely on your own experience" in KLARIS_SYSTEM_PROMPT
+    assert "If no archive result supports the answer" in KLARIS_SYSTEM_PROMPT
+    assert "Personal tone is allowed; personal factual claims are not" in KLARIS_SYSTEM_PROMPT
+
+
 def test_build_rag_prompt_keeps_context_and_question() -> None:
     messages = build_rag_prompt(
         "what is Shrine of Order?",

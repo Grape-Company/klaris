@@ -48,12 +48,6 @@ def _remove_elements(soup: BeautifulSoup) -> None:
         for element in soup.select(selector):
             element.decompose()
 
-    for string_node in soup.find_all(
-        string=lambda text: isinstance(text, str) and len(text.strip()) < 3
-    ):
-        if string_node.parent and string_node.parent.name in ["li", "p", "td", "th", "span", "div"]:
-            pass
-
 
 def _extract_text(soup: BeautifulSoup) -> str:
     parts: list[str] = []

@@ -9,5 +9,5 @@ __pycache__/
 *.pyc
 *.egg-info/
 pgdata/
-klaris
+/klaris
 klaris.pub

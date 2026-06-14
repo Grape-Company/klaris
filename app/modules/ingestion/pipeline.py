@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -30,7 +30,7 @@ class IngestionPipeline:
         run = IngestionRun(
             id=run_id,
             status="running",
-            started_at=datetime.utcnow(),
+            started_at=datetime.now(UTC),
         )
         self.session.add(run)
         await self.session.commit()
@@ -54,7 +54,7 @@ class IngestionPipeline:
 
             run = await self._get_run(run_id)
             run.status = "completed"
-            run.finished_at = datetime.utcnow()
+            run.finished_at = datetime.now(UTC)
             run.pages_ingested = pages_ingested
             run.pages_failed = pages_failed
             await self.session.commit()
@@ -63,7 +63,7 @@ class IngestionPipeline:
             await self.session.rollback()
             run = await self._get_run(run_id)
             run.status = "failed"
-            run.finished_at = datetime.utcnow()
+            run.finished_at = datetime.now(UTC)
             run.error_message = str(e)
             await self.session.commit()
             logger.error("ingestion_pipeline_failed", error=str(e))
@@ -81,7 +81,12 @@ class IngestionPipeline:
 
         page_info = await self.client.get_page_info(title)
         page_id = page_info.get("pageid") if page_info else None
-        url = f"{settings.mediawiki_api_url.replace('/api.php', '')}/wiki/{title.replace(' ', '_')}"
+        base_url = settings.mediawiki_api_url
+        if base_url.endswith("/api.php"):
+            base_url = base_url.removesuffix("/api.php")
+        elif "/api.php" in base_url:
+            base_url = base_url.split("/api.php")[0]
+        url = f"{base_url}/wiki/{title.replace(' ', '_')}"
 
         clean_text = clean_html(html)
         content_hash = compute_content_hash(clean_text)
@@ -99,8 +104,8 @@ class IngestionPipeline:
         page.raw_html = html
         page.clean_text = clean_text
         page.content_hash = content_hash
-        page.last_ingested_at = datetime.utcnow()
-        page.updated_at = datetime.utcnow()
+        page.last_ingested_at = datetime.now(UTC)
+        page.updated_at = datetime.now(UTC)
 
         if existing:
             page = await self.wiki_repo.upsert_page(page)
@@ -149,7 +154,7 @@ class IngestionPipeline:
                 content=chunk.content,
                 token_count=chunk.token_count,
                 embedding=embedding,
-                created_at=datetime.utcnow(),
+                created_at=datetime.now(UTC),
             )
             self.session.add(db_chunk)
 

@@ -115,12 +115,12 @@ curl -X POST http://IP_DA_DROPLET:8000/api/ingestion/run \
 
 Depois aumente para `100`, `500` ou mais conforme estabilidade, custo do provedor de IA e uso de CPU/RAM.
 
-## 8. Perguntar ao RAG
+## 8. Conversar com Klaris
 
 ```bash
-curl -X POST http://IP_DA_DROPLET:8000/api/rag/ask \
+curl -X POST http://IP_DA_DROPLET:8000/api/klaris/chat \
   -H "Content-Type: application/json" \
-  -d '{"question":"what is Shrine of Order?","top_k":8}'
+  -d '{"message":"what is Shrine of Order?","top_k":8}'
 ```
 
 ## 9. Firewall básico

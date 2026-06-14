@@ -5,7 +5,7 @@
 Mantenha o bot como camada separada:
 
 ```text
-Discord slash command -> bot -> POST /api/rag/ask -> Discord response
+Discord slash command -> bot -> POST /api/klaris/chat -> Discord response
 ```
 
 O bot não deve acessar banco, MediaWiki API ou OpenAI diretamente. Ele deve chamar a API FastAPI.
@@ -21,7 +21,7 @@ O bot não deve acessar banco, MediaWiki API ou OpenAI diretamente. Ele deve cha
 
 ## Proteções já existentes na API
 
-- `question`/`query` limitados a 2000 caracteres.
+- `message`/`query` limitados a 2000 caracteres.
 - `top_k` limitado entre 1 e 20.
 - Timeout nas etapas de recuperação e chamada do modelo.
 - Resposta truncada por `RAG_MAX_ANSWER_CHARS`.
@@ -41,8 +41,8 @@ import httpx
 async def ask_deepwoken(api_url: str, question: str) -> dict:
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(
-            f"{api_url}/api/rag/ask",
-            json={"question": question, "top_k": 8},
+            f"{api_url}/api/klaris/chat",
+            json={"message": question, "top_k": 8},
         )
         response.raise_for_status()
         return response.json()

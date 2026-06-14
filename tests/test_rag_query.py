@@ -1,6 +1,7 @@
 from app.modules.rag.query import (
     analyze_query,
     answer_indicates_not_found,
+    needs_knowledge_search,
     not_found_answer,
     preferred_language,
     small_talk_answer,
@@ -56,3 +57,20 @@ def test_analyze_query_extracts_clean_subject_without_leading_article() -> None:
 
     assert intent.clean_query == "what is the megalodount"
     assert intent.subjects == ["megalodount"]
+
+
+def test_analyze_query_extracts_oath_subject_from_portuguese_question() -> None:
+    intent = analyze_query("como conseguir a Oath Blightsurger?")
+
+    assert intent.subjects == ["Blightsurger"]
+
+
+def test_analyze_query_extracts_subject_from_oath_requirements_query() -> None:
+    intent = analyze_query("Blightsurger Oath requirements")
+
+    assert intent.subjects == ["Blightsurger"]
+
+
+def test_needs_knowledge_search_routes_deepwoken_factual_questions() -> None:
+    assert needs_knowledge_search("como conseguir a Oath Blightsurger?")
+    assert not needs_knowledge_search("oi Klaris")

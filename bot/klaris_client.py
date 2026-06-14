@@ -9,16 +9,7 @@ class KlarisApiClient:
         self.timeout_seconds = timeout_seconds
 
     async def ask(self, question: str, top_k: int) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
-            response = await client.post(
-                f"{self.api_url}/api/klaris/ask",
-                json={"question": question, "top_k": top_k},
-            )
-            response.raise_for_status()
-            data = response.json()
-            if not isinstance(data, dict):
-                raise ValueError("Unexpected Klaris API response")
-            return data
+        return await self.chat(question, top_k)
 
     async def chat(self, message: str, top_k: int) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:

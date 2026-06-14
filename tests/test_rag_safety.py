@@ -1,30 +1,17 @@
-import pytest
-from httpx import ASGITransport, AsyncClient
-
 from app.main import app
 from app.modules.rag.service import truncate_answer
 
 
-@pytest.mark.asyncio
-async def test_rag_ask_rejects_invalid_top_k() -> None:
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.post(
-            "/api/rag/ask",
-            json={"question": "what is Shrine of Order?", "top_k": 0},
-        )
+def test_rag_ask_is_not_public() -> None:
+    paths = {path for route in app.routes if isinstance(path := getattr(route, "path", None), str)}
 
-    assert response.status_code == 422
+    assert "/api/rag/ask" not in paths
 
 
-@pytest.mark.asyncio
-async def test_rag_ask_rejects_question_that_is_too_long() -> None:
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.post(
-            "/api/rag/ask",
-            json={"question": "x" * 2001, "top_k": 8},
-        )
+def test_klaris_ask_is_not_public() -> None:
+    paths = {path for route in app.routes if isinstance(path := getattr(route, "path", None), str)}
 
-    assert response.status_code == 422
+    assert "/api/klaris/ask" not in paths
 
 
 def test_truncate_answer_keeps_response_under_limit() -> None:

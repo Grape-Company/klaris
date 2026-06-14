@@ -8,7 +8,12 @@ O retriever gera embedding da pergunta e consulta `wiki_chunks` com distância c
 ORDER BY c.embedding <=> :embedding::vector
 ```
 
-`/api/rag/search` retorna os trechos recuperados para depuração sem chamar o modelo de linguagem.
+`/api/rag/search` retorna os trechos recuperados para depuração sem chamar o
+modelo de linguagem. Essa rota é administrativa e exige `X-Admin-Api-Key`.
+
+Usuários finais não chamam RAG diretamente. Eles usam `POST /api/klaris/chat`;
+quando a mensagem exige conhecimento de Deepwoken, Klaris executa a busca
+internamente.
 
 ## Prompt
 
@@ -22,12 +27,11 @@ O prompt fixa regras anti-alucinação:
 
 ## Resposta
 
-`/api/rag/ask` retorna:
+`/api/klaris/chat` retorna:
 
 ```json
 {
-  "answer_id": "0b04602b-5dd1-4895-a321-5b831b9d60f8",
-  "answer": "...",
+  "response": "...",
   "sources": [
     {
       "title": "Shadowcast",
@@ -38,7 +42,8 @@ O prompt fixa regras anti-alucinação:
 }
 ```
 
-Se nenhum chunk for recuperado, a API retorna a frase padrão sem fontes e `answer_id` nulo.
+Se nenhum chunk forte for recuperado, a API retorna a frase padrão sem fontes.
+Chunks fracos ou ambíguos não são enviados como base factual para a resposta.
 
 ## Autoaperfeiçoamento supervisionado
 
@@ -50,7 +55,7 @@ O ciclo de melhoria é:
 pergunta -> resposta com answer_id -> feedback humano -> métricas -> ajuste revisado de ingestão/retrieval/prompt
 ```
 
-`POST /api/rag/feedback` recebe:
+`POST /api/rag/feedback` é administrativo e recebe:
 
 ```json
 {

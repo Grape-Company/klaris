@@ -15,8 +15,30 @@ QUESTION_PREFIXES = (
     "where is ",
     "where are ",
     "how to get ",
+    "how do i get ",
 )
 LEADING_SUBJECT_WORDS = {"a", "an", "the", "o", "os", "as", "um", "uma"}
+TRAILING_SUBJECT_WORDS = {
+    "requirement",
+    "requirements",
+    "req",
+    "reqs",
+    "location",
+    "locations",
+    "obtainment",
+    "progression",
+}
+INVALID_SUBJECT_WORDS = {
+    "como",
+    "conseguir",
+    "consigo",
+    "pegar",
+    "obter",
+    "what",
+    "how",
+    "where",
+    "who",
+}
 SMALL_TALK_GREETINGS = {
     "oi",
     "olá",
@@ -47,6 +69,33 @@ PORTUGUESE_MARKERS = {
     "você",
     "sobre",
 }
+DEEPWOKEN_FACT_MARKERS = {
+    "attunement",
+    "attunements",
+    "boss",
+    "build",
+    "deepwoken",
+    "faction",
+    "galebreathe",
+    "item",
+    "mantra",
+    "oath",
+    "oaths",
+    "talent",
+    "thundercall",
+    "weapon",
+}
+PORTUGUESE_SUBJECT_PATTERNS = (
+    re.compile(r"\bcomo\s+(?:consigo|conseguir|pegar|obter)\s+(?:a\s+|o\s+)?Oath\s+(.+)", re.I),
+    re.compile(r"\bo\s+que\s+faz\s+(.+)", re.I),
+    re.compile(r"\bonde\s+(?:fica|encontro|achar)\s+(.+)", re.I),
+    re.compile(r"\bquem\s+(?:é|e)\s+(.+)", re.I),
+    re.compile(r"\bo\s+que\s+(?:é|e)\s+(.+)", re.I),
+)
+TERM_SUBJECT_PATTERNS = (
+    re.compile(r"\bOath\s+([A-Za-z][A-Za-z' -]{1,60})", re.I),
+    re.compile(r"\b([A-Za-z][A-Za-z' -]{1,60})\s+Oath\b", re.I),
+)
 
 
 @dataclass(frozen=True)
@@ -82,6 +131,23 @@ def extract_subjects(query: str) -> list[str]:
             if subject:
                 subjects.append(subject)
 
+    for pattern in PORTUGUESE_SUBJECT_PATTERNS:
+        match = pattern.search(normalized)
+        if match:
+            subject = normalize_subject(match.group(1))
+            if subject.casefold().startswith("oath "):
+                subject = normalize_subject(subject[5:])
+            if subject:
+                subjects.append(subject)
+
+    for pattern in TERM_SUBJECT_PATTERNS:
+        match = pattern.search(normalized)
+        if match:
+            subject = normalize_subject(match.group(1))
+            subject_words = {word.casefold() for word in subject.split()}
+            if subject and not subject_words.intersection(INVALID_SUBJECT_WORDS):
+                subjects.append(subject)
+
     return list(dict.fromkeys(subjects))
 
 
@@ -89,6 +155,8 @@ def normalize_subject(subject: str) -> str:
     words = subject.strip(" ?.!,").split()
     while words and words[0].casefold() in LEADING_SUBJECT_WORDS:
         words.pop(0)
+    while words and words[-1].casefold() in TRAILING_SUBJECT_WORDS:
+        words.pop()
     return " ".join(words).strip(" ?.!,")
 
 
@@ -133,3 +201,30 @@ def answer_indicates_not_found(answer: str) -> bool:
         PT_NOT_FOUND_ANSWER in lowered
         or EN_NOT_FOUND_ANSWER.lower() in lowered
     )
+
+
+def needs_knowledge_search(message: str) -> bool:
+    if small_talk_answer(message):
+        return False
+
+    intent = analyze_query(message)
+    compact = intent.clean_query.casefold()
+    if intent.subjects:
+        return True
+
+    if any(marker in compact for marker in DEEPWOKEN_FACT_MARKERS):
+        return True
+
+    question_markers = (
+        "what ",
+        "who ",
+        "where ",
+        "how ",
+        "qual ",
+        "quais ",
+        "quem ",
+        "onde ",
+        "como ",
+        "o que ",
+    )
+    return compact.endswith("?") and compact.startswith(question_markers)

@@ -16,9 +16,14 @@ from app.modules.klaris.tools import (
     execute_tool_call,
     format_chunks_for_llm,
 )
-from app.modules.rag.query import not_found_answer
+from app.modules.rag.query import (
+    answer_indicates_not_found,
+    needs_knowledge_search,
+    not_found_answer,
+    small_talk_answer,
+)
 from app.modules.rag.retriever import RetrievedChunk, Retriever
-from app.modules.rag.source_selection import select_source_chunks
+from app.modules.rag.source_selection import filter_evidence_chunks, select_source_chunks
 
 TRUNCATION_SUFFIX = "\n\n[resposta truncada]"
 ASK_SEARCH_QUERY_SYSTEM_PROMPT = """You rewrite Deepwoken questions into search queries.
@@ -165,6 +170,12 @@ class KlarisAgent:
         return clean_rewritten_search_query(rewritten, fallback=question)
 
     async def chat(self, message: str, top_k: int = 8) -> KlarisResponse:
+        if greeting_answer := small_talk_answer(message):
+            return KlarisResponse(response=greeting_answer, sources=[])
+
+        if needs_knowledge_search(message):
+            return await self.ask(message, top_k)
+
         messages: list[ChatCompletionMessageParam] = [
             {"role": "system", "content": KLARIS_SYSTEM_PROMPT},
             {"role": "user", "content": message},
@@ -172,7 +183,7 @@ class KlarisAgent:
 
         all_chunks: list[RetrievedChunk] = []
 
-        response = await self._chat_completion(messages)
+        response = await self._chat_completion(messages, tool_choice="none")
         answer = await self._run_tool_loop(response.choices[0].message, messages, all_chunks, top_k)
 
         answer = truncate_answer(answer, settings.rag_max_answer_chars)
@@ -198,8 +209,15 @@ class KlarisAgent:
                 sources=[],
             )
 
-        context = format_chunks_for_llm(chunks)
-        all_chunks: list[RetrievedChunk] = list(chunks)
+        evidence_chunks = filter_evidence_chunks(chunks)
+        selected_chunks = select_source_chunks(evidence_chunks)
+        if not evidence_chunks or not selected_chunks:
+            return KlarisResponse(
+                response=not_found_answer(question),
+                sources=[],
+            )
+
+        context = format_chunks_for_llm(evidence_chunks)
 
         messages: list[ChatCompletionMessageParam] = [
             {"role": "system", "content": KLARIS_SYSTEM_PROMPT},
@@ -217,10 +235,13 @@ class KlarisAgent:
             },
         ]
 
-        response = await self._chat_completion(messages)
-        answer = await self._run_tool_loop(response.choices[0].message, messages, all_chunks, top_k)
+        response = await self._chat_completion(messages, tool_choice="none")
+        answer = response.choices[0].message.content or ""
 
         answer = truncate_answer(answer, settings.rag_max_answer_chars)
-        sources = collect_sources(all_chunks)
+        if answer_indicates_not_found(answer):
+            return KlarisResponse(response=answer, sources=[])
+
+        sources = collect_sources(selected_chunks)
 
         return KlarisResponse(response=answer, sources=sources)

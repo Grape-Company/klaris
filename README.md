@@ -81,9 +81,9 @@ docker compose up -d db
 - `POST /api/ingestion/category/{category}`
 - `GET /api/ingestion/runs`
 - `GET /api/ingestion/runs/{id}`
-- `POST /api/rag/search`
-- `POST /api/rag/ask`
-- `POST /api/rag/feedback`
+- `POST /api/klaris/chat`
+- `POST /api/rag/search` (admin/debug)
+- `POST /api/rag/feedback` (admin)
 - `GET /api/rag/improvement/stats`
 
 ## Bot Discord
@@ -97,12 +97,14 @@ Para Render + Supabase, veja [docs/deployment.md](docs/deployment.md).
 Exemplo:
 
 ```bash
-curl -X POST http://localhost:8000/api/rag/ask \
+curl -X POST http://localhost:8000/api/klaris/chat \
   -H "Content-Type: application/json" \
-  -d '{"question":"what is Shrine of Order?","top_k":8}'
+  -d '{"message":"what is Shrine of Order?","top_k":8}'
 ```
 
-Quando uma resposta é baseada em contexto recuperado, ela retorna `answer_id`. Use esse ID para registrar feedback:
+`/api/klaris/chat` é a superfície pública. Quando a mensagem exige conhecimento de Deepwoken, Klaris aciona internamente a busca RAG, usa apenas fontes fortes e retorna `sources`.
+
+Rotas de debug e feedback RAG exigem `X-Admin-Api-Key`:
 
 ```bash
 curl -X POST http://localhost:8000/api/rag/feedback \

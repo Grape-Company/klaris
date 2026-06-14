@@ -68,9 +68,11 @@ Comece com `limit=20` ou `limit=100` para não estourar o Supabase Free.
 Use apenas:
 
 ```text
-POST /api/rag/ask
-POST /api/rag/search
+POST /api/klaris/chat
 GET /health
 ```
 
-Não exponha o `ADMIN_API_KEY` no bot se o bot rodar em ambiente cliente. Se o bot roda como servidor, pode guardar o token em variável secreta.
+`/api/rag/search`, `/api/rag/feedback`, `/api/rag/improvement/stats` e rotas de
+ingestão são administrativas. Não exponha o `ADMIN_API_KEY` no bot se o bot
+rodar em ambiente cliente. Se o bot roda como servidor, pode guardar o token em
+variável secreta.

@@ -25,8 +25,9 @@ class FakeCompletion:
 
 
 class FakeRetriever(Retriever):
-    def __init__(self) -> None:
+    def __init__(self, score: float = 0.98) -> None:
         self.calls: list[tuple[str, int]] = []
+        self.score = score
 
     async def search(self, query: str, top_k: int = 8) -> list[RetrievedChunk]:
         self.calls.append((query, top_k))
@@ -39,7 +40,7 @@ class FakeRetriever(Retriever):
                 "token_count": 6,
                 "page_title": "Deep Shrines/Shrine of Order",
                 "page_url": "https://deepwoken.fandom.com/wiki/Deep_Shrines/Shrine_of_Order",
-                "score": 0.98,
+                "score": self.score,
             }
         ]
 
@@ -76,3 +77,37 @@ async def test_ask_rewrites_non_english_question_to_english_search_query() -> No
     assert retriever.calls == [("Shrine of Order", 8)]
     assert "Shrine of Order" in response.response
     assert response.sources[0].title == "Deep Shrines/Shrine of Order"
+
+
+@pytest.mark.asyncio
+async def test_ask_returns_not_found_when_retrieval_has_no_strong_source() -> None:
+    retriever = FakeRetriever(score=0.42)
+    agent = FakeKlarisAgent(
+        retriever=retriever,
+        responses=[
+            FakeCompletion("Blightsurger Oath requirements"),
+            FakeCompletion("Blightsurger is obtained by defeating Titus in a raid."),
+        ],
+    )
+
+    response = await agent.ask("como conseguir a Oath Blightsurger?", top_k=8)
+
+    assert response.response == "não encontrei essa informação na base atual."
+    assert response.sources == []
+
+
+@pytest.mark.asyncio
+async def test_chat_routes_deepwoken_questions_through_internal_ask() -> None:
+    retriever = FakeRetriever()
+    agent = FakeKlarisAgent(
+        retriever=retriever,
+        responses=[
+            FakeCompletion("Shrine of Order"),
+            FakeCompletion("Shrine of Order reorganiza atributos."),
+        ],
+    )
+
+    response = await agent.chat("o que faz o santuário da ordem?", top_k=8)
+
+    assert retriever.calls == [("Shrine of Order", 8)]
+    assert "Shrine of Order" in response.response

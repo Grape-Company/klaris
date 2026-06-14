@@ -5,8 +5,6 @@ from app.core.database import get_session
 from app.core.exceptions import RAGError
 from app.core.security import require_admin
 from app.modules.rag.schemas import (
-    RAGAskRequest,
-    RAGAskResponse,
     RAGFeedbackRequest,
     RAGFeedbackResponse,
     RAGImprovementStatsResponse,
@@ -18,7 +16,11 @@ from app.modules.rag.service import RagService
 router = APIRouter(prefix="/api/rag", tags=["rag"])
 
 
-@router.post("/search", response_model=RAGSearchResponse)
+@router.post(
+    "/search",
+    response_model=RAGSearchResponse,
+    dependencies=[Depends(require_admin)],
+)
 async def search_chunks(
     request: RAGSearchRequest,
     session: AsyncSession = Depends(get_session),
@@ -30,19 +32,11 @@ async def search_chunks(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@router.post("/ask", response_model=RAGAskResponse)
-async def ask_question(
-    request: RAGAskRequest,
-    session: AsyncSession = Depends(get_session),
-) -> RAGAskResponse:
-    service = RagService(session)
-    try:
-        return await service.ask(request.question, request.top_k)
-    except RAGError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-
-@router.post("/feedback", response_model=RAGFeedbackResponse)
+@router.post(
+    "/feedback",
+    response_model=RAGFeedbackResponse,
+    dependencies=[Depends(require_admin)],
+)
 async def record_feedback(
     request: RAGFeedbackRequest,
     session: AsyncSession = Depends(get_session),

@@ -33,7 +33,15 @@ A ingestão é idempotente por `title UNIQUE`, `content_hash` e recriação dos 
 
 ## Fluxo RAG
 
-`/api/rag/search` retorna apenas chunks. `/api/rag/ask` recupera chunks, monta contexto e chama o modelo. A resposta inclui fontes usadas e, quando registrada, um `answer_id`.
+`/api/klaris/chat` é a única superfície conversacional pública. Quando a mensagem
+é factual sobre Deepwoken, o agente aciona internamente o fluxo RAG:
+
+```text
+chat -> classificação factual -> reescrita de consulta -> retrieval -> seleção de fontes fortes -> LLM -> resposta com sources
+```
+
+`/api/rag/search` existe apenas para debug administrativo protegido por
+`X-Admin-Api-Key`. Não há `/api/rag/ask` público.
 
 ## Fluxo de melhoria
 

@@ -1,7 +1,7 @@
 from uuid import uuid4
 
 from app.modules.rag.retriever import RetrievedChunk
-from app.modules.rag.source_selection import select_source_chunks
+from app.modules.rag.source_selection import filter_evidence_chunks, select_source_chunks
 
 
 def make_chunk(title: str, score: float) -> RetrievedChunk:
@@ -51,3 +51,14 @@ def test_select_source_chunks_caps_source_count() -> None:
     ]
 
     assert len(select_source_chunks(chunks)) == 3
+
+
+def test_filter_evidence_chunks_removes_weak_context_before_llm() -> None:
+    chunks = [
+        make_chunk("Shrine of Order", 0.98),
+        make_chunk("Unrelated", 0.42),
+    ]
+
+    evidence = filter_evidence_chunks(chunks)
+
+    assert [chunk["page_title"] for chunk in evidence] == ["Shrine of Order"]

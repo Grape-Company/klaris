@@ -21,7 +21,7 @@ from app.modules.rag.schemas import (
     RAGSearchResponse,
     SourceInfo,
 )
-from app.modules.rag.source_selection import select_source_chunks
+from app.modules.rag.source_selection import filter_evidence_chunks, select_source_chunks
 
 TRUNCATION_SUFFIX = "\n\n[resposta truncada]"
 
@@ -73,7 +73,15 @@ class RagService:
                 sources=[],
             )
 
-        if direct_answer := disambiguation_answer(question, chunks):
+        evidence_chunks = filter_evidence_chunks(chunks)
+        selected_chunks = select_source_chunks(evidence_chunks)
+        if not evidence_chunks or not selected_chunks:
+            return RAGAskResponse(
+                answer=not_found_answer(question),
+                sources=[],
+            )
+
+        if direct_answer := disambiguation_answer(question, evidence_chunks):
             sources = [
                 SourceInfo(
                     title=chunk["page_title"],
@@ -95,7 +103,7 @@ class RagService:
                 sources=sources,
             )
 
-        messages = build_rag_prompt(question, chunks)
+        messages = build_rag_prompt(question, evidence_chunks)
 
         try:
             response = await asyncio.wait_for(
@@ -121,7 +129,7 @@ class RagService:
             return RAGAskResponse(answer=answer, sources=[])
 
         sources = []
-        for chunk in select_source_chunks(chunks):
+        for chunk in selected_chunks:
             sources.append(
                 SourceInfo(
                     title=chunk["page_title"],

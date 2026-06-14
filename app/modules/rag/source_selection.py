@@ -5,6 +5,14 @@ CONTENT_MATCH_SOURCE_SCORE = 0.9
 MAX_SOURCES = 3
 
 
+def filter_evidence_chunks(chunks: list[RetrievedChunk]) -> list[RetrievedChunk]:
+    return [
+        chunk
+        for chunk in chunks
+        if chunk["score"] >= CONTENT_MATCH_SOURCE_SCORE
+    ]
+
+
 def select_source_chunks(chunks: list[RetrievedChunk]) -> list[RetrievedChunk]:
     strong_title_matches = [
         chunk for chunk in chunks if chunk["score"] >= TITLE_MATCH_SOURCE_SCORE

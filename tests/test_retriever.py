@@ -1,6 +1,11 @@
 from uuid import uuid4
 
-from app.modules.rag.retriever import RetrievedChunk, merge_ranked_chunks
+from app.modules.rag.query import analyze_query
+from app.modules.rag.retriever import (
+    RetrievedChunk,
+    keyword_patterns,
+    merge_ranked_chunks,
+)
 
 
 def make_chunk(title: str, score: float) -> RetrievedChunk:
@@ -39,3 +44,24 @@ def test_merge_ranked_chunks_deduplicates_keyword_and_vector_results() -> None:
 
     assert len(results) == 1
     assert results[0]["score"] == 1.0
+
+
+def test_keyword_patterns_extracts_subject_from_natural_question() -> None:
+    assert keyword_patterns(analyze_query("what is Shrine of Order?")) == [
+        "%what is Shrine of Order%",
+        "%Shrine of Order%",
+    ]
+
+
+def test_keyword_patterns_extracts_subject_from_who_question() -> None:
+    assert keyword_patterns(analyze_query("who is Ethiron?")) == [
+        "%who is Ethiron%",
+        "%Ethiron%",
+    ]
+
+
+def test_keyword_patterns_strips_articles_without_manual_typo_patch() -> None:
+    assert keyword_patterns(analyze_query("what is the megalodount?")) == [
+        "%what is the megalodount%",
+        "%megalodount%",
+    ]

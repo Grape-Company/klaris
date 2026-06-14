@@ -60,3 +60,31 @@ Fontes:
 ```
 
 Se a mensagem passar de 2000 caracteres, divida em múltiplas mensagens ou reduza fontes exibidas.
+
+## Deploy com Docker Compose
+
+Configure no `.env`:
+
+```env
+DISCORD_BOT_TOKEN=<token-do-bot>
+RAG_API_URL=http://app:8000
+BOT_DEFAULT_TOP_K=8
+```
+
+Se quiser registrar slash commands instantaneamente em um servidor específico, configure também:
+
+```env
+DISCORD_GUILD_ID=<id-do-servidor>
+```
+
+Suba API, banco e bot:
+
+```bash
+docker compose -f docker-compose.digitalocean.yml up -d --build
+```
+
+Ver logs:
+
+```bash
+docker compose -f docker-compose.digitalocean.yml logs -f bot
+```

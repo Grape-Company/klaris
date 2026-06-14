@@ -17,6 +17,7 @@ dependencies = [
     "pydantic-settings>=2.0.0",
     "python-dotenv>=1.0.0",
     "openai>=1.0.0",
+    "discord.py>=2.4.0",
     "tiktoken>=0.7.0",
     "numpy>=1.26.0",
     "pgvector>=0.3.0",

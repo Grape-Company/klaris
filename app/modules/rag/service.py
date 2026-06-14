@@ -5,7 +5,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.exceptions import RAGError
+from app.modules.rag.answer_policy import disambiguation_answer
 from app.modules.rag.prompt import build_rag_prompt
+from app.modules.rag.query import answer_indicates_not_found, not_found_answer, small_talk_answer
 from app.modules.rag.retriever import RetrievedChunk, Retriever
 from app.modules.rag.schemas import (
     ChunkResult,
@@ -13,6 +15,7 @@ from app.modules.rag.schemas import (
     RAGSearchResponse,
     SourceInfo,
 )
+from app.modules.rag.source_selection import select_source_chunks
 
 TRUNCATION_SUFFIX = "\n\n[resposta truncada]"
 
@@ -52,12 +55,28 @@ class RagService:
         )
 
     async def ask(self, question: str, top_k: int = 8) -> RAGAskResponse:
+        if greeting_answer := small_talk_answer(question):
+            return RAGAskResponse(answer=greeting_answer, sources=[])
+
         chunks = await self._search_with_timeout(question, top_k)
 
         if not chunks:
             return RAGAskResponse(
-                answer="não encontrei essa informação na base atual.",
+                answer=not_found_answer(question),
                 sources=[],
+            )
+
+        if direct_answer := disambiguation_answer(question, chunks):
+            return RAGAskResponse(
+                answer=direct_answer.answer,
+                sources=[
+                    SourceInfo(
+                        title=chunk["page_title"],
+                        url=chunk["page_url"],
+                        chunk_id=chunk["id"],
+                    )
+                    for chunk in direct_answer.source_chunks
+                ],
             )
 
         messages = build_rag_prompt(question, chunks)
@@ -82,19 +101,18 @@ class RagService:
             settings.rag_max_answer_chars,
         )
 
-        seen = set()
+        if answer_indicates_not_found(answer):
+            return RAGAskResponse(answer=answer, sources=[])
+
         sources = []
-        for chunk in chunks:
-            key = (chunk["page_title"], chunk["page_url"])
-            if key not in seen:
-                seen.add(key)
-                sources.append(
-                    SourceInfo(
-                        title=chunk["page_title"],
-                        url=chunk["page_url"],
-                        chunk_id=chunk["id"],
-                    )
+        for chunk in select_source_chunks(chunks):
+            sources.append(
+                SourceInfo(
+                    title=chunk["page_title"],
+                    url=chunk["page_url"],
+                    chunk_id=chunk["id"],
                 )
+            )
 
         return RAGAskResponse(answer=answer, sources=sources)
 

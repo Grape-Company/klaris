@@ -5,6 +5,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.ingestion.embedder import Embedder
+from app.modules.rag.query import QueryIntent, analyze_query
 
 
 class RetrievedChunk(TypedDict):
@@ -43,13 +44,21 @@ class Retriever:
         self.embedder = Embedder()
 
     async def search(self, query: str, top_k: int = 8) -> list[RetrievedChunk]:
-        keyword_chunks = await self._keyword_search(query, top_k)
+        intent = analyze_query(query)
+        keyword_chunks = await self._keyword_search(intent, top_k)
         vector_chunks = await self._vector_search(query, top_k)
 
         return merge_ranked_chunks(keyword_chunks, vector_chunks, top_k)
 
-    async def _keyword_search(self, query: str, top_k: int) -> list[RetrievedChunk]:
-        pattern = f"%{query}%"
+    async def _keyword_search(self, intent: QueryIntent, top_k: int) -> list[RetrievedChunk]:
+        patterns = keyword_patterns(intent)
+        if not patterns:
+            return []
+        subjects = [subject.casefold() for subject in intent.subjects]
+        primary_subject = subjects[0] if subjects else intent.clean_query.casefold()
+        subject_patterns = [f"%{subject}%" for subject in subjects]
+        subject_suffix_patterns = [f"%/{subject}" for subject in subjects]
+
         sql = text("""
             SELECT
                 c.id,
@@ -60,23 +69,40 @@ class Retriever:
                 p.title AS page_title,
                 p.url AS page_url,
                 CASE
-                    WHEN lower(p.title) = lower(:query) THEN 1.0
-                    WHEN lower(p.title) LIKE lower(:pattern) THEN 0.98
-                    WHEN lower(c.content) LIKE lower(:pattern) THEN 0.92
+                    WHEN lower(p.title) = lower(:clean_query) THEN 1.0
+                    WHEN :has_subjects AND lower(p.title) = :primary_subject THEN 1.0
+                    WHEN :has_subjects
+                        AND lower(p.title) LIKE ANY(:subject_suffix_patterns) THEN 0.99
+                    WHEN :has_subjects
+                        AND similarity(lower(p.title), :primary_subject) >= 0.55
+                        THEN 0.94 + (similarity(lower(p.title), :primary_subject) * 0.04)
+                    WHEN :has_subjects AND lower(p.title) LIKE ANY(:subject_patterns) THEN 0.93
+                    WHEN NOT :has_subjects AND lower(p.title) LIKE ANY(:patterns) THEN 0.96
+                    WHEN lower(c.content) LIKE ANY(:patterns) THEN 0.92
                     ELSE 0.0
                 END AS score
             FROM wiki_chunks c
             JOIN wiki_pages p ON p.id = c.page_id
             WHERE
-                lower(p.title) LIKE lower(:pattern)
-                OR lower(c.content) LIKE lower(:pattern)
+                (:has_subjects AND lower(p.title) LIKE ANY(:subject_patterns))
+                OR (:has_subjects AND similarity(lower(p.title), :primary_subject) >= 0.55)
+                OR (NOT :has_subjects AND lower(p.title) LIKE ANY(:patterns))
+                OR lower(c.content) LIKE ANY(:patterns)
             ORDER BY score DESC, p.title ASC, c.chunk_index ASC
             LIMIT :top_k
         """)
 
         result = await self.session.execute(
             sql,
-            {"query": query, "pattern": pattern, "top_k": top_k},
+            {
+                "clean_query": intent.clean_query,
+                "patterns": [pattern.lower() for pattern in patterns],
+                "primary_subject": primary_subject,
+                "subject_patterns": subject_patterns,
+                "subject_suffix_patterns": subject_suffix_patterns,
+                "has_subjects": bool(intent.subjects),
+                "top_k": top_k,
+            },
         )
 
         rows = result.fetchall()
@@ -123,3 +149,9 @@ class Retriever:
             "page_url": cast(str, row.page_url),
             "score": float(row.score),
         }
+
+
+def keyword_patterns(intent: QueryIntent) -> list[str]:
+    patterns = [f"%{intent.clean_query}%"] if intent.clean_query else []
+    patterns.extend(f"%{subject}%" for subject in intent.subjects)
+    return list(dict.fromkeys(patterns))

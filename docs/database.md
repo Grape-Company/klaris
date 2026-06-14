@@ -4,6 +4,7 @@
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
 ```
 
 ## Tabelas
@@ -17,6 +18,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 ## Índices
 
 - `idx_wiki_pages_title`
+- `idx_wiki_pages_title_trgm` usando `gin_trgm_ops` para busca aproximada de títulos
 - `idx_wiki_chunks_page_id`
 - `idx_wiki_chunks_embedding` usando `ivfflat` e `vector_cosine_ops`
 

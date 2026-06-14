@@ -24,7 +24,7 @@ from app.modules.rag.query import (
     not_found_answer,
     small_talk_answer,
 )
-from app.modules.rag.retriever import RetrievedChunk, Retriever
+from app.modules.rag.retriever import RetrievedChunk, Retriever, merge_ranked_chunks
 from app.modules.rag.source_selection import filter_evidence_chunks, select_source_chunks
 
 TRUNCATION_SUFFIX = "\n\n[resposta truncada]"
@@ -301,6 +301,32 @@ class KlarisAgent:
         except APIError as exc:
             raise RAGError("Embedding provider unavailable") from exc
 
+        evidence_chunks = filter_evidence_chunks(chunks)
+        selected_chunks = select_source_chunks(evidence_chunks)
+        if (
+            (not evidence_chunks or not selected_chunks)
+            and search_query.casefold() != question.casefold()
+        ):
+            logger.info(
+                "klaris_search_retrying_original_question",
+                search_query=search_query,
+                original_question=question,
+                chunk_count=len(chunks),
+            )
+            try:
+                original_chunks = await asyncio.wait_for(
+                    self.retriever.search(question, top_k),
+                    timeout=settings.rag_request_timeout_seconds,
+                )
+            except TimeoutError as exc:
+                raise RAGError("RAG retrieval timeout") from exc
+            except APIError as exc:
+                raise RAGError("Embedding provider unavailable") from exc
+
+            chunks = merge_ranked_chunks(original_chunks, chunks, top_k)
+            evidence_chunks = filter_evidence_chunks(chunks)
+            selected_chunks = select_source_chunks(evidence_chunks)
+
         if not chunks:
             logger.warning("klaris_search_no_chunks", search_query=search_query)
             return KlarisResponse(
@@ -317,8 +343,6 @@ class KlarisAgent:
             top_title=top_chunk["page_title"],
         )
 
-        evidence_chunks = filter_evidence_chunks(chunks)
-        selected_chunks = select_source_chunks(evidence_chunks)
         if not evidence_chunks or not selected_chunks:
             logger.warning(
                 "klaris_search_weak_evidence",

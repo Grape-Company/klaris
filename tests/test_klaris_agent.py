@@ -45,6 +45,16 @@ class FakeRetriever(Retriever):
         ]
 
 
+class QueryAwareFakeRetriever(Retriever):
+    def __init__(self, chunks_by_query: dict[str, list[RetrievedChunk]]) -> None:
+        self.calls: list[tuple[str, int]] = []
+        self.chunks_by_query = chunks_by_query
+
+    async def search(self, query: str, top_k: int = 8) -> list[RetrievedChunk]:
+        self.calls.append((query, top_k))
+        return self.chunks_by_query.get(query, [])[:top_k]
+
+
 class FakeKlarisAgent(KlarisAgent):
     retriever: FakeRetriever
 
@@ -165,6 +175,56 @@ async def test_ask_retries_search_rewrite_when_first_query_is_not_canonical() ->
 
     assert retriever.calls == [("Duke's Key", 8)]
     assert "Duke's Key" in response.response
+
+
+@pytest.mark.asyncio
+async def test_ask_falls_back_to_original_question_when_rewritten_query_is_weak() -> None:
+    weak_chunk: RetrievedChunk = {
+        "id": uuid4(),
+        "chunk_index": 0,
+        "heading": "Overview",
+        "content": "Page: Unrelated\n\nUnrelated archive text.",
+        "token_count": 5,
+        "page_title": "Unrelated",
+        "page_url": "https://example.test/wiki/Unrelated",
+        "score": 0.42,
+    }
+    shrine_chunk: RetrievedChunk = {
+        "id": uuid4(),
+        "chunk_index": 0,
+        "heading": "Usage",
+        "content": (
+            "Page: Deep Shrines/Shrine of Order\n"
+            "Section: Usage\n"
+            "Shrine of Order averages invested points."
+        ),
+        "token_count": 12,
+        "page_title": "Deep Shrines/Shrine of Order",
+        "page_url": "https://deepwoken.fandom.com/wiki/Deep_Shrines/Shrine_of_Order",
+        "score": 0.98,
+    }
+    retriever = QueryAwareFakeRetriever(
+        {
+            "bad verbose rewrite": [weak_chunk],
+            "what is Shrine of Order?": [shrine_chunk],
+        }
+    )
+    agent = FakeKlarisAgent(
+        retriever=retriever,
+        responses=[
+            FakeCompletion("bad verbose rewrite"),
+            FakeCompletion("Shrine of Order averages invested points."),
+        ],
+    )
+
+    response = await agent.ask("what is Shrine of Order?", top_k=8)
+
+    assert retriever.calls == [
+        ("bad verbose rewrite", 8),
+        ("what is Shrine of Order?", 8),
+    ]
+    assert "Shrine of Order" in response.response
+    assert response.sources[0].title == "Deep Shrines/Shrine of Order"
 
 
 @pytest.mark.asyncio

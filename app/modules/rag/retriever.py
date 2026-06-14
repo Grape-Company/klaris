@@ -77,7 +77,12 @@ class Retriever:
                         AND similarity(lower(p.title), :primary_subject) >= 0.55
                         THEN 0.94 + (similarity(lower(p.title), :primary_subject) * 0.04)
                     WHEN :has_subjects AND lower(p.title) LIKE ANY(:subject_patterns) THEN 0.93
+                    WHEN :has_subjects
+                        AND lower(coalesce(c.heading, '')) = :primary_subject THEN 0.97
+                    WHEN :has_subjects
+                        AND lower(coalesce(c.heading, '')) LIKE ANY(:subject_patterns) THEN 0.95
                     WHEN NOT :has_subjects AND lower(p.title) LIKE ANY(:patterns) THEN 0.96
+                    WHEN lower(coalesce(c.heading, '')) LIKE ANY(:patterns) THEN 0.94
                     WHEN lower(c.content) LIKE ANY(:patterns) THEN 0.92
                     ELSE 0.0
                 END AS score
@@ -86,7 +91,9 @@ class Retriever:
             WHERE
                 (:has_subjects AND lower(p.title) LIKE ANY(:subject_patterns))
                 OR (:has_subjects AND similarity(lower(p.title), :primary_subject) >= 0.55)
+                OR (:has_subjects AND lower(coalesce(c.heading, '')) LIKE ANY(:subject_patterns))
                 OR (NOT :has_subjects AND lower(p.title) LIKE ANY(:patterns))
+                OR lower(coalesce(c.heading, '')) LIKE ANY(:patterns)
                 OR lower(c.content) LIKE ANY(:patterns)
             ORDER BY score DESC, p.title ASC, c.chunk_index ASC
             LIMIT :top_k

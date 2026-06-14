@@ -46,6 +46,8 @@ docker compose up --build
 
 O Compose sobe PostgreSQL/pgvector, aplica `alembic upgrade head` e inicia a API em `http://localhost:8000`.
 
+Se o Postgres já tiver sido iniciado antes com outra senha no volume `pgdata`, mudar `.env` não altera a senha salva no banco. Nesse caso, use a mesma senha antiga em `POSTGRES_PASSWORD` ou recrie o volume local com `docker compose down -v` quando puder apagar os dados.
+
 ## Rodar sem Docker
 
 ```bash

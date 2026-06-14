@@ -102,6 +102,23 @@ Teste de fora:
 curl http://IP_DA_DROPLET:8000/health
 ```
 
+Se aparecer `password authentication failed for user "deepwoken"`, o volume `pgdata` provavelmente foi criado com outra senha. O Postgres só usa `POSTGRES_PASSWORD` na primeira inicialização do volume.
+
+Para preservar dados, volte o `.env` para a senha usada na primeira criação do banco e suba novamente:
+
+```bash
+docker compose -f docker-compose.digitalocean.yml up -d --build
+```
+
+Para ambiente novo sem dados importantes, recrie o volume:
+
+```bash
+docker compose -f docker-compose.digitalocean.yml down -v
+docker compose -f docker-compose.digitalocean.yml up -d --build
+```
+
+No servidor da DigitalOcean, prefira sempre informar o arquivo de produção com `-f docker-compose.digitalocean.yml`. O comando sem `-f` usa o `docker-compose.yml` local.
+
 ## 7. Ingestão inicial
 
 Comece pequeno:

@@ -2,27 +2,33 @@ services:
   db:
     image: pgvector/pgvector:pg17
     environment:
-      POSTGRES_USER: deepwoken
-      POSTGRES_PASSWORD: deepwoken
-      POSTGRES_DB: deepwoken
+      POSTGRES_USER: ${POSTGRES_USER:-deepwoken}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-deepwoken}
+      POSTGRES_DB: ${POSTGRES_DB:-deepwoken}
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U deepwoken"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-deepwoken} -d ${POSTGRES_DB:-deepwoken}",
+        ]
       interval: 5s
       timeout: 5s
       retries: 5
 
   app:
     build: .
+    env_file:
+      - .env
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-development}
       ADMIN_API_KEY: ${ADMIN_API_KEY}
       ENABLE_DOCS: ${ENABLE_DOCS:-true}
-      DATABASE_URL: postgresql+asyncpg://deepwoken:deepwoken@db:5432/deepwoken
-      DATABASE_SYNC_URL: postgresql://deepwoken:deepwoken@db:5432/deepwoken
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-deepwoken}:${POSTGRES_PASSWORD:-deepwoken}@db:5432/${POSTGRES_DB:-deepwoken}
+      DATABASE_SYNC_URL: postgresql://${POSTGRES_USER:-deepwoken}:${POSTGRES_PASSWORD:-deepwoken}@db:5432/${POSTGRES_DB:-deepwoken}
       DATABASE_SSL: "false"
       DATABASE_SSL_VERIFY: "true"
       MEDIAWIKI_API_URL: https://deepwoken.fandom.com/api.php

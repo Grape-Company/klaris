@@ -4,6 +4,7 @@ import re
 from collections.abc import Sequence
 from typing import Any
 
+import structlog
 from openai import APIError, APITimeoutError, AsyncOpenAI
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,6 +29,7 @@ from app.modules.rag.source_selection import filter_evidence_chunks, select_sour
 
 TRUNCATION_SUFFIX = "\n\n[resposta truncada]"
 MAX_TOOL_CALL_ROUNDS = 3
+logger = structlog.get_logger()
 ASK_SEARCH_QUERY_SYSTEM_PROMPT = """You rewrite Deepwoken questions into search queries.
 
 Return only one concise English search query for the Deepwoken Wiki archive.
@@ -273,6 +275,11 @@ class KlarisAgent:
         except RAGError:
             return search_query
 
+        logger.info(
+            "klaris_search_query_canonicalized",
+            first_query=search_query,
+            strict_query=strict_query,
+        )
         return strict_query or search_query
 
     async def chat(self, message: str, top_k: int = 8) -> KlarisResponse:
@@ -283,6 +290,7 @@ class KlarisAgent:
 
     async def ask(self, question: str, top_k: int = 8) -> KlarisResponse:
         search_query = await self._rewrite_question_for_search(question)
+        logger.info("klaris_search_started", search_query=search_query, top_k=top_k)
         try:
             chunks = await asyncio.wait_for(
                 self.retriever.search(search_query, top_k),
@@ -294,14 +302,31 @@ class KlarisAgent:
             raise RAGError("Embedding provider unavailable") from exc
 
         if not chunks:
+            logger.warning("klaris_search_no_chunks", search_query=search_query)
             return KlarisResponse(
                 response=not_found_answer(question),
                 sources=[],
             )
 
+        top_chunk = chunks[0]
+        logger.info(
+            "klaris_search_completed",
+            search_query=search_query,
+            chunk_count=len(chunks),
+            top_score=top_chunk["score"],
+            top_title=top_chunk["page_title"],
+        )
+
         evidence_chunks = filter_evidence_chunks(chunks)
         selected_chunks = select_source_chunks(evidence_chunks)
         if not evidence_chunks or not selected_chunks:
+            logger.warning(
+                "klaris_search_weak_evidence",
+                search_query=search_query,
+                chunk_count=len(chunks),
+                top_score=top_chunk["score"],
+                top_title=top_chunk["page_title"],
+            )
             return KlarisResponse(
                 response=not_found_answer(question),
                 sources=[],

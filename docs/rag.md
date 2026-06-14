@@ -26,6 +26,7 @@ O prompt fixa regras anti-alucinação:
 
 ```json
 {
+  "answer_id": "0b04602b-5dd1-4895-a321-5b831b9d60f8",
   "answer": "...",
   "sources": [
     {
@@ -37,4 +38,38 @@ O prompt fixa regras anti-alucinação:
 }
 ```
 
-Se nenhum chunk for recuperado, a API retorna a frase padrão sem fontes.
+Se nenhum chunk for recuperado, a API retorna a frase padrão sem fontes e `answer_id` nulo.
+
+## Autoaperfeiçoamento supervisionado
+
+O sistema não treina modelo próprio e não permite que a IA altere código, prompt ou conteúdo da wiki sozinha.
+
+O ciclo de melhoria é:
+
+```text
+pergunta -> resposta com answer_id -> feedback humano -> métricas -> ajuste revisado de ingestão/retrieval/prompt
+```
+
+`POST /api/rag/feedback` recebe:
+
+```json
+{
+  "answer_id": "0b04602b-5dd1-4895-a321-5b831b9d60f8",
+  "rating": "negative",
+  "correction": "A fonte recuperada não sustenta esse requisito."
+}
+```
+
+`rating` aceita apenas `positive` ou `negative`. `correction` é opcional e serve para auditoria humana.
+
+`GET /api/rag/improvement/stats` retorna estatísticas agregadas de feedback e é rota administrativa protegida por `X-Admin-Api-Key`.
+
+Cada resposta registrada salva:
+
+- pergunta;
+- resposta;
+- `top_k`;
+- versão do prompt;
+- modelo usado;
+- chunks usados como fonte;
+- scores dos chunks recuperados.

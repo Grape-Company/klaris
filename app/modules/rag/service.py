@@ -1,4 +1,6 @@
 import asyncio
+from typing import cast
+from uuid import UUID
 
 from openai import APIError, APITimeoutError, AsyncOpenAI
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -6,12 +8,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.exceptions import RAGError
 from app.modules.rag.answer_policy import disambiguation_answer
-from app.modules.rag.prompt import build_rag_prompt
+from app.modules.rag.improvement import FeedbackRating, summarize_feedback
+from app.modules.rag.prompt import RAG_PROMPT_VERSION, build_rag_prompt
 from app.modules.rag.query import answer_indicates_not_found, not_found_answer, small_talk_answer
+from app.modules.rag.repository import RAGImprovementRepository
 from app.modules.rag.retriever import RetrievedChunk, Retriever
 from app.modules.rag.schemas import (
     ChunkResult,
     RAGAskResponse,
+    RAGFeedbackResponse,
+    RAGImprovementStatsResponse,
     RAGSearchResponse,
     SourceInfo,
 )
@@ -34,6 +40,7 @@ class RagService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
         self.retriever = Retriever(session)
+        self.improvement_repo = RAGImprovementRepository(session)
         self.llm_client = AsyncOpenAI(
             api_key=settings.openai_api_key,
             base_url=settings.openai_base_url,
@@ -67,16 +74,25 @@ class RagService:
             )
 
         if direct_answer := disambiguation_answer(question, chunks):
-            return RAGAskResponse(
+            sources = [
+                SourceInfo(
+                    title=chunk["page_title"],
+                    url=chunk["page_url"],
+                    chunk_id=chunk["id"],
+                )
+                for chunk in direct_answer.source_chunks
+            ]
+            answer_id = await self._record_answer(
+                question=question,
                 answer=direct_answer.answer,
-                sources=[
-                    SourceInfo(
-                        title=chunk["page_title"],
-                        url=chunk["page_url"],
-                        chunk_id=chunk["id"],
-                    )
-                    for chunk in direct_answer.source_chunks
-                ],
+                top_k=top_k,
+                source_chunk_ids=[str(source.chunk_id) for source in sources],
+                chunks=chunks,
+            )
+            return RAGAskResponse(
+                answer_id=answer_id,
+                answer=direct_answer.answer,
+                sources=sources,
             )
 
         messages = build_rag_prompt(question, chunks)
@@ -114,7 +130,45 @@ class RagService:
                 )
             )
 
-        return RAGAskResponse(answer=answer, sources=sources)
+        answer_id = await self._record_answer(
+            question=question,
+            answer=answer,
+            top_k=top_k,
+            source_chunk_ids=[str(source.chunk_id) for source in sources],
+            chunks=chunks,
+        )
+
+        return RAGAskResponse(answer_id=answer_id, answer=answer, sources=sources)
+
+    async def record_feedback(
+        self,
+        *,
+        answer_id: UUID,
+        rating: FeedbackRating,
+        correction: str | None,
+    ) -> RAGFeedbackResponse | None:
+        if await self.improvement_repo.get_answer_log(answer_id) is None:
+            return None
+
+        feedback = await self.improvement_repo.create_feedback(
+            answer_id=answer_id,
+            rating=rating,
+            correction=correction,
+        )
+        return RAGFeedbackResponse(
+            status="recorded",
+            answer_id=feedback.answer_id,
+            rating=cast(FeedbackRating, feedback.rating),
+        )
+
+    async def improvement_stats(self) -> RAGImprovementStatsResponse:
+        summary = summarize_feedback(await self.improvement_repo.feedback_stats())
+        return RAGImprovementStatsResponse(
+            total_feedback=summary.total_feedback,
+            positive_feedback=summary.positive_feedback,
+            negative_feedback=summary.negative_feedback,
+            correction_count=summary.correction_count,
+        )
 
     async def _search_with_timeout(self, query: str, top_k: int) -> list[RetrievedChunk]:
         try:
@@ -126,3 +180,30 @@ class RagService:
             raise RAGError("RAG retrieval timeout") from exc
         except APIError as exc:
             raise RAGError("Embedding provider unavailable") from exc
+
+    async def _record_answer(
+        self,
+        *,
+        question: str,
+        answer: str,
+        top_k: int,
+        source_chunk_ids: list[str],
+        chunks: list[RetrievedChunk],
+    ) -> UUID:
+        answer_log = await self.improvement_repo.create_answer_log(
+            question=question,
+            answer=answer,
+            top_k=top_k,
+            prompt_version=RAG_PROMPT_VERSION,
+            model=settings.llm_model,
+            source_chunk_ids=source_chunk_ids,
+            retrieval_scores=[
+                {
+                    "chunk_id": str(chunk["id"]),
+                    "page_title": chunk["page_title"],
+                    "score": chunk["score"],
+                }
+                for chunk in chunks
+            ],
+        )
+        return answer_log.id

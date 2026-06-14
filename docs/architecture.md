@@ -20,7 +20,7 @@ Routers cuidam apenas de HTTP, validação via schemas e códigos de resposta. S
 
 - `wiki`: leitura de páginas, categorias e busca textual simples.
 - `ingestion`: MediaWiki client, limpeza, chunking, embeddings e pipeline.
-- `rag`: busca vetorial, prompt anti-alucinação e geração da resposta.
+- `rag`: busca vetorial, prompt anti-alucinação, geração da resposta e feedback supervisionado.
 - `core`: configuração, banco, logging e exceções.
 
 ## Fluxo de ingestão
@@ -33,7 +33,15 @@ A ingestão é idempotente por `title UNIQUE`, `content_hash` e recriação dos 
 
 ## Fluxo RAG
 
-`/api/rag/search` retorna apenas chunks. `/api/rag/ask` recupera chunks, monta contexto e chama o modelo. A resposta inclui fontes usadas.
+`/api/rag/search` retorna apenas chunks. `/api/rag/ask` recupera chunks, monta contexto e chama o modelo. A resposta inclui fontes usadas e, quando registrada, um `answer_id`.
+
+## Fluxo de melhoria
+
+```text
+answer_id -> feedback humano -> rag_answer_feedback -> estatísticas -> revisão de prompt/retrieval/ingestão
+```
+
+O autoaperfeiçoamento é deliberadamente supervisionado. Feedback e métricas indicam onde melhorar, mas nenhuma rotina altera prompt, código, embeddings ou conteúdo da wiki sem revisão explícita.
 
 ## Decisões técnicas
 
@@ -41,3 +49,4 @@ A ingestão é idempotente por `title UNIQUE`, `content_hash` e recriação dos 
 - PostgreSQL + pgvector para manter dados relacionais e busca semântica no mesmo banco.
 - Alembic como fonte de verdade para schema.
 - Docker Compose com host interno `db`, mantendo compatibilidade com rede Docker.
+- Feedback de RAG em tabelas próprias para não contaminar a base factual da wiki.

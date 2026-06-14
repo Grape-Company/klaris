@@ -83,6 +83,8 @@ docker compose up -d db
 - `GET /api/ingestion/runs/{id}`
 - `POST /api/rag/search`
 - `POST /api/rag/ask`
+- `POST /api/rag/feedback`
+- `GET /api/rag/improvement/stats`
 
 ## Bot Discord
 
@@ -100,6 +102,16 @@ curl -X POST http://localhost:8000/api/rag/ask \
   -d '{"question":"what is Shrine of Order?","top_k":8}'
 ```
 
+Quando uma resposta é baseada em contexto recuperado, ela retorna `answer_id`. Use esse ID para registrar feedback:
+
+```bash
+curl -X POST http://localhost:8000/api/rag/feedback \
+  -H "Content-Type: application/json" \
+  -d '{"answer_id":"<uuid>","rating":"negative","correction":"faltou fonte para esse requisito"}'
+```
+
+Estatísticas agregadas de melhoria ficam em `GET /api/rag/improvement/stats` e exigem `X-Admin-Api-Key`.
+
 ## Decisões
 
-O projeto é um monólito modular. Routers chamam services, services chamam repositories, repositories acessam banco. A ingestão é separada da consulta para preservar latência baixa no RAG.
+O projeto é um monólito modular. Routers chamam services, services chamam repositories, repositories acessam banco. A ingestão é separada da consulta para preservar latência baixa no RAG. O autoaperfeiçoamento é supervisionado por feedback e métricas; a IA não altera pesos, código, prompt ou fatos sem revisão.

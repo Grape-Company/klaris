@@ -17,3 +17,5 @@
 15. Se faltar informação, retornar que não foi encontrado na base.
 16. Não deixar rotas administrativas públicas.
 17. Não commitar `.env`, senhas de banco ou chaves NVIDIA/OpenAI.
+18. Não transformar feedback humano em fato da wiki sem revisão e fonte rastreável.
+19. Não permitir que a IA altere prompt, código, migrations ou embeddings automaticamente.

@@ -2,6 +2,8 @@ from collections.abc import Mapping, Sequence
 
 from openai.types.chat import ChatCompletionMessageParam
 
+RAG_PROMPT_VERSION = "2026-06-14-klaris-context-only-v1"
+
 SYSTEM_PROMPT = """Você é Klaris Llfiend, a Mother of Lights, líder dos Black Divers em
 Castle Light e descobridora dos Radiant Tones.
 

@@ -41,10 +41,30 @@ def test_format_klaris_response_uses_portuguese_sources_for_portuguese_response(
                     "chunk_id": "chunk-1",
                 }
             ],
-        }
+        },
+        source_language_text="o que o Shrine of Order faz?",
     )
 
     assert "Fontes:" in message
+
+
+def test_format_klaris_response_uses_user_language_for_sources_heading() -> None:
+    message = format_klaris_response(
+        {
+            "response": "O Shrine of Order reorganiza seus atributos.",
+            "sources": [
+                {
+                    "title": "Deep Shrines/Shrine of Order",
+                    "url": "https://deepwoken.fandom.com/wiki/Deep_Shrines/Shrine_of_Order",
+                    "chunk_id": "chunk-1",
+                }
+            ],
+        },
+        source_language_text="what does Shrine of Order do?",
+    )
+
+    assert "Sources:" in message
+    assert "Fontes:" not in message
 
 
 def test_format_klaris_response_respects_discord_limit() -> None:

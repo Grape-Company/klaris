@@ -63,7 +63,7 @@ async def ask(interaction: discord.Interaction, question: str) -> None:
         )
         return
 
-    await interaction.followup.send(format_klaris_response(payload))
+    await interaction.followup.send(format_klaris_response(payload, source_language_text=question))
 
 
 @tree.command(name="chat", description="Talk with Klaris Llfiend")  # type: ignore[untyped-decorator]
@@ -93,7 +93,7 @@ async def chat(interaction: discord.Interaction, message: str) -> None:
         )
         return
 
-    await interaction.followup.send(format_klaris_response(payload))
+    await interaction.followup.send(format_klaris_response(payload, source_language_text=message))
 
 
 def main() -> None:

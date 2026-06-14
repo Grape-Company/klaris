@@ -4,11 +4,12 @@ DISCORD_MESSAGE_LIMIT = 2000
 TRUNCATION_SUFFIX = "\n\n[truncated]"
 
 
-def format_klaris_response(payload: Mapping[str, object]) -> str:
+def format_klaris_response(
+    payload: Mapping[str, object],
+    source_language_text: str | None = None,
+) -> str:
     response = str(
-        payload.get("response")
-        or payload.get("answer")
-        or "I could not find that information."
+        payload.get("response") or payload.get("answer") or "I could not find that information."
     )
     sources = payload.get("sources")
 
@@ -23,7 +24,8 @@ def format_klaris_response(payload: Mapping[str, object]) -> str:
             if title and url:
                 source_lines.append(f"- {title}: {url}")
         if source_lines:
-            parts.append(f"{_source_heading(response)}:\n" + "\n".join(source_lines))
+            language_text = source_language_text or response
+            parts.append(f"{_source_heading(language_text)}:\n" + "\n".join(source_lines))
 
     message = "\n\n".join(part for part in parts if part)
     return _truncate_message(message)

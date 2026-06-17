@@ -3,6 +3,7 @@ import json
 import re
 from collections.abc import Sequence
 from typing import Any
+from uuid import UUID
 
 import structlog
 from openai import APIError, APITimeoutError, AsyncOpenAI
@@ -24,11 +25,13 @@ from app.modules.rag.query import (
     not_found_answer,
     small_talk_answer,
 )
+from app.modules.rag.repository import RAGImprovementRepository
 from app.modules.rag.retriever import RetrievedChunk, Retriever, merge_ranked_chunks
 from app.modules.rag.source_selection import filter_evidence_chunks, select_source_chunks
 
 TRUNCATION_SUFFIX = "\n\n[resposta truncada]"
 MAX_TOOL_CALL_ROUNDS = 3
+KLARIS_PROMPT_VERSION = "klaris-v1"
 logger = structlog.get_logger()
 ASK_SEARCH_QUERY_SYSTEM_PROMPT = """You rewrite Deepwoken questions into search queries.
 
@@ -52,6 +55,28 @@ def truncate_answer(answer: str, max_chars: int) -> str:
     if max_chars <= len(TRUNCATION_SUFFIX):
         return TRUNCATION_SUFFIX[:max_chars]
     return answer[: max_chars - len(TRUNCATION_SUFFIX)].rstrip() + TRUNCATION_SUFFIX
+
+
+def format_conversation_history(history: Sequence[dict[str, str]] | None) -> str:
+    if not history:
+        return ""
+
+    lines: list[str] = []
+    for turn in history:
+        role = turn.get("role")
+        content = " ".join(turn.get("content", "").split())
+        if role not in {"user", "assistant"} or not content:
+            continue
+        label = "User" if role == "user" else "Klaris"
+        lines.append(f"{label}: {content}")
+    return "\n".join(lines)
+
+
+def format_contextual_question(question: str, history: Sequence[dict[str, str]] | None) -> str:
+    history_text = format_conversation_history(history)
+    if not history_text:
+        return question
+    return f"Conversation history:\n{history_text}\n\nCurrent user message:\n{question}"
 
 
 def collect_sources(raw_chunks: Sequence[RetrievedChunk]) -> list[SourceInfo]:
@@ -145,17 +170,14 @@ def should_retry_search_rewrite(original_question: str, rewritten_query: str) ->
 
 
 def _meaningful_tokens(value: str) -> set[str]:
-    return {
-        token.casefold()
-        for token in re.findall(r"[A-Za-zÀ-ÿ']+", value)
-        if len(token) > 2
-    }
+    return {token.casefold() for token in re.findall(r"[A-Za-zÀ-ÿ']+", value) if len(token) > 2}
 
 
 class KlarisAgent:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
         self.retriever = Retriever(session)
+        self.improvement_repo = RAGImprovementRepository(session)
         self.llm_client = AsyncOpenAI(
             api_key=settings.openai_api_key,
             base_url=settings.openai_base_url,
@@ -282,14 +304,57 @@ class KlarisAgent:
         )
         return strict_query or search_query
 
-    async def chat(self, message: str, top_k: int = 8) -> KlarisResponse:
+    async def _record_answer(
+        self,
+        *,
+        question: str,
+        answer: str,
+        top_k: int,
+        sources: list[SourceInfo],
+        chunks: list[RetrievedChunk],
+    ) -> UUID | None:
+        try:
+            answer_log = await self.improvement_repo.create_answer_log(
+                question=question,
+                answer=answer,
+                top_k=top_k,
+                prompt_version=KLARIS_PROMPT_VERSION,
+                model=settings.llm_model,
+                source_chunk_ids=[str(s.chunk_id) for s in sources],
+                retrieval_scores=[
+                    {
+                        "chunk_id": str(chunk["id"]),
+                        "page_title": chunk["page_title"],
+                        "score": chunk["score"],
+                    }
+                    for chunk in chunks
+                ],
+            )
+            return answer_log.id
+        except Exception:
+            logger.exception("klaris_answer_log_failed")
+            return None
+
+    async def chat(
+        self,
+        message: str,
+        top_k: int = 8,
+        history: Sequence[dict[str, str]] | None = None,
+    ) -> KlarisResponse:
         if greeting_answer := small_talk_answer(message):
             return KlarisResponse(response=greeting_answer, sources=[])
 
-        return await self.ask(message, top_k)
+        return await self.ask(message, top_k, history)
 
-    async def ask(self, question: str, top_k: int = 8) -> KlarisResponse:
-        search_query = await self._rewrite_question_for_search(question)
+    async def ask(
+        self,
+        question: str,
+        top_k: int = 8,
+        history: Sequence[dict[str, str]] | None = None,
+    ) -> KlarisResponse:
+        contextual_question = format_contextual_question(question, history)
+        history_text = format_conversation_history(history)
+        search_query = await self._rewrite_question_for_search(contextual_question)
         logger.info("klaris_search_started", search_query=search_query, top_k=top_k)
         try:
             chunks = await asyncio.wait_for(
@@ -304,9 +369,8 @@ class KlarisAgent:
         evidence_chunks = filter_evidence_chunks(chunks)
         selected_chunks = select_source_chunks(evidence_chunks)
         if (
-            (not evidence_chunks or not selected_chunks)
-            and search_query.casefold() != question.casefold()
-        ):
+            not evidence_chunks or not selected_chunks
+        ) and search_query.casefold() != question.casefold():
             logger.info(
                 "klaris_search_retrying_original_question",
                 search_query=search_query,
@@ -329,10 +393,8 @@ class KlarisAgent:
 
         if not chunks:
             logger.warning("klaris_search_no_chunks", search_query=search_query)
-            return KlarisResponse(
-                response=not_found_answer(question),
-                sources=[],
-            )
+            answer = not_found_answer(question)
+            return KlarisResponse(response=answer, sources=[])
 
         top_chunk = chunks[0]
         logger.info(
@@ -351,12 +413,13 @@ class KlarisAgent:
                 top_score=top_chunk["score"],
                 top_title=top_chunk["page_title"],
             )
-            return KlarisResponse(
-                response=not_found_answer(question),
-                sources=[],
-            )
+            answer = not_found_answer(question)
+            return KlarisResponse(response=answer, sources=[])
 
         context = format_chunks_for_llm(evidence_chunks)
+        conversation_block = (
+            f"CONVERSATION HISTORY:\n{history_text}\n\n" if history_text else ""
+        )
 
         messages: list[ChatCompletionMessageParam] = [
             {"role": "system", "content": KLARIS_SYSTEM_PROMPT},
@@ -364,6 +427,7 @@ class KlarisAgent:
                 "role": "user",
                 "content": (
                     f"ARCHIVE RESULTS:\n{context}\n\n"
+                    f"{conversation_block}"
                     f"ORIGINAL QUESTION: {question}\n"
                     f"ENGLISH SEARCH QUERY USED: {search_query}\n\n"
                     "Using the archive results above, answer my question as yourself, Klaris."
@@ -395,11 +459,20 @@ class KlarisAgent:
 
         answer = truncate_answer(answer, settings.rag_max_answer_chars)
         if not answer or looks_like_text_tool_call(answer):
-            return KlarisResponse(response=not_found_answer(question), sources=[])
+            answer = not_found_answer(question)
+            return KlarisResponse(response=answer, sources=[])
 
         if answer_indicates_not_found(answer):
             return KlarisResponse(response=answer, sources=[])
 
         sources = collect_sources(selected_chunks)
 
-        return KlarisResponse(response=answer, sources=sources)
+        answer_id = await self._record_answer(
+            question=question,
+            answer=answer,
+            top_k=top_k,
+            sources=sources,
+            chunks=chunks,
+        )
+
+        return KlarisResponse(answer_id=answer_id, response=answer, sources=sources)

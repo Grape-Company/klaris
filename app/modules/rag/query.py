@@ -197,10 +197,7 @@ def not_found_answer(question: str) -> str:
 
 def answer_indicates_not_found(answer: str) -> bool:
     lowered = answer.lower()
-    return (
-        PT_NOT_FOUND_ANSWER in lowered
-        or EN_NOT_FOUND_ANSWER.lower() in lowered
-    )
+    return PT_NOT_FOUND_ANSWER in lowered or EN_NOT_FOUND_ANSWER.lower() in lowered
 
 
 def needs_knowledge_search(message: str) -> bool:

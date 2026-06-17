@@ -39,8 +39,7 @@ def disambiguation_answer(question: str, chunks: list[RetrievedChunk]) -> Direct
                 f"- {chunk['page_title']}" for chunk in alternatives
             )
         answer += (
-            "\n\nA base não tem detalhes suficientes para definir a entidade base "
-            "com precisão."
+            "\n\nA base não tem detalhes suficientes para definir a entidade base com precisão."
         )
     else:
         answer = (
@@ -52,8 +51,7 @@ def disambiguation_answer(question: str, chunks: list[RetrievedChunk]) -> Direct
                 f"- {chunk['page_title']}" for chunk in alternatives
             )
         answer += (
-            "\n\nThe archive does not contain enough detail to define the base entity "
-            "precisely."
+            "\n\nThe archive does not contain enough detail to define the base entity precisely."
         )
 
     return DirectAnswer(answer=answer, source_chunks=[primary])

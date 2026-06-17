@@ -6,23 +6,15 @@ MAX_SOURCES = 3
 
 
 def filter_evidence_chunks(chunks: list[RetrievedChunk]) -> list[RetrievedChunk]:
-    return [
-        chunk
-        for chunk in chunks
-        if chunk["score"] >= CONTENT_MATCH_SOURCE_SCORE
-    ]
+    return [chunk for chunk in chunks if chunk["score"] >= CONTENT_MATCH_SOURCE_SCORE]
 
 
 def select_source_chunks(chunks: list[RetrievedChunk]) -> list[RetrievedChunk]:
-    strong_title_matches = [
-        chunk for chunk in chunks if chunk["score"] >= TITLE_MATCH_SOURCE_SCORE
-    ]
+    strong_title_matches = [chunk for chunk in chunks if chunk["score"] >= TITLE_MATCH_SOURCE_SCORE]
     if strong_title_matches:
         return _unique_page_chunks(strong_title_matches, MAX_SOURCES)
 
-    content_matches = [
-        chunk for chunk in chunks if chunk["score"] >= CONTENT_MATCH_SOURCE_SCORE
-    ]
+    content_matches = [chunk for chunk in chunks if chunk["score"] >= CONTENT_MATCH_SOURCE_SCORE]
     return _unique_page_chunks(content_matches, MAX_SOURCES)
 
 

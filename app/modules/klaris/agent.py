@@ -21,6 +21,7 @@ from app.modules.klaris.tools import (
     format_chunks_for_llm,
 )
 from app.modules.rag.query import (
+    analyze_query,
     answer_indicates_not_found,
     not_found_answer,
     small_talk_answer,
@@ -47,6 +48,56 @@ STRICT_SEARCH_QUERY_SYSTEM_PROMPT = """You fix failed Deepwoken Wiki search quer
 Return only one concise English search query using likely canonical Deepwoken
 Wiki terminology. Translate any non-English words into English game/wiki terms.
 Do not answer the question. Do not add explanations. Do not use quotes."""
+
+FOLLOWUP_PRONOUNS = {
+    "its",
+    "his",
+    "her",
+    "their",
+    "them",
+    "ele",
+    "ela",
+    "eles",
+    "elas",
+    "dele",
+    "dela",
+    "deles",
+    "delas",
+    "seu",
+    "sua",
+    "seus",
+    "suas",
+}
+GENERIC_SEARCH_WORDS = {
+    "describe",
+    "descreva",
+    "explain",
+    "explique",
+    "list",
+    "liste",
+    "show",
+    "mostre",
+    "what",
+    "which",
+    "qual",
+    "quais",
+    "are",
+    "is",
+    "the",
+    "a",
+    "an",
+    "o",
+    "os",
+    "as",
+    "de",
+    "do",
+    "da",
+    "dos",
+    "das",
+}
+SUBJECT_ALIASES = {
+    "duke of erisia": "Duke Erisia",
+}
 
 
 def truncate_answer(answer: str, max_chars: int) -> str:
@@ -171,6 +222,78 @@ def should_retry_search_rewrite(original_question: str, rewritten_query: str) ->
 
 def _meaningful_tokens(value: str) -> set[str]:
     return {token.casefold() for token in re.findall(r"[A-Za-zÀ-ÿ']+", value) if len(token) > 2}
+
+
+def _ordered_meaningful_tokens(value: str) -> list[str]:
+    return [token for token in re.findall(r"[A-Za-zÀ-ÿ']+", value) if len(token) > 2]
+
+
+def _canonical_subject(subject: str) -> str:
+    cleaned = " ".join(subject.split()).strip(" \"'`?.!,")
+    return SUBJECT_ALIASES.get(cleaned.casefold(), cleaned)
+
+
+def _query_mentions_subject(query: str, subject: str) -> bool:
+    query_tokens = _meaningful_tokens(query)
+    subject_tokens = _meaningful_tokens(subject)
+    return bool(subject_tokens) and subject_tokens.issubset(query_tokens)
+
+
+def _is_contextual_followup(message: str) -> bool:
+    tokens = _meaningful_tokens(message)
+    return bool(tokens.intersection(FOLLOWUP_PRONOUNS))
+
+
+def _recent_history_subject(history: Sequence[dict[str, str]] | None) -> str | None:
+    if not history:
+        return None
+
+    for turn in reversed(history):
+        if turn.get("role") != "user":
+            continue
+        intent = analyze_query(turn.get("content", ""))
+        if intent.subjects:
+            return _canonical_subject(intent.subjects[0])
+
+    for turn in reversed(history):
+        content = turn.get("content", "")
+        match = re.search(r"\bDuke of Erisia\b", content, re.I)
+        if match:
+            return "Duke Erisia"
+
+    return None
+
+
+def _contextualize_search_query(
+    *,
+    question: str,
+    search_query: str,
+    history: Sequence[dict[str, str]] | None,
+) -> str:
+    subject = _recent_history_subject(history)
+    if (
+        not subject
+        or not _is_contextual_followup(question)
+        or _query_mentions_subject(search_query, subject)
+    ):
+        return search_query
+
+    query_tokens = [
+        token
+        for token in _ordered_meaningful_tokens(search_query)
+        if token.casefold() not in FOLLOWUP_PRONOUNS
+        and token.casefold() not in GENERIC_SEARCH_WORDS
+    ]
+    if not query_tokens:
+        query_tokens = [
+            token
+            for token in _ordered_meaningful_tokens(question)
+            if token.casefold() not in FOLLOWUP_PRONOUNS
+            and token.casefold() not in GENERIC_SEARCH_WORDS
+        ]
+
+    tail = " ".join(query_tokens).strip()
+    return f"{subject} {tail}".strip()
 
 
 def _query_log_metadata(value: str) -> dict[str, int | bool]:
@@ -363,6 +486,11 @@ class KlarisAgent:
         contextual_question = format_contextual_question(question, history)
         history_text = format_conversation_history(history)
         search_query = await self._rewrite_question_for_search(contextual_question)
+        search_query = _contextualize_search_query(
+            question=question,
+            search_query=search_query,
+            history=history,
+        )
         logger.info(
             "klaris_search_started",
             top_k=top_k,

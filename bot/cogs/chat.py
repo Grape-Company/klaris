@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from time import monotonic
 
 import discord
 import structlog
@@ -21,19 +22,33 @@ MIN_MESSAGE_LENGTH = 1
 
 
 class ConversationStore:
-    """Simple in-memory conversation history store."""
+    """Simple in-memory conversation history store with TTL support."""
 
     def __init__(self, max_turns: int = 10) -> None:
         self._max_turns = max_turns
-        self._histories: dict[str, list[dict[str, str]]] = {}
+        # Store entries as list of (timestamp, message_dict)
+        self._histories: dict[str, list[tuple[float, dict[str, str]]]] = {}
+
+    def _prune_expired(self, user_id: str) -> None:
+        """Remove entries older than the configured TTL."""
+        from bot.config import bot_settings
+        ttl = bot_settings.bot_context_ttl_seconds
+        now = monotonic()
+        if user_id in self._histories:
+            self._histories[user_id] = [
+                (ts, msg) for ts, msg in self._histories[user_id] if now - ts <= ttl
+            ]
 
     def get_history(self, user_id: str) -> list[dict[str, str]]:
-        return self._histories.get(user_id, [])
+        # Ensure expired messages are removed before returning
+        self._prune_expired(user_id)
+        return [msg for _ts, msg in self._histories.get(user_id, [])]
 
     def add_message(self, user_id: str, role: str, content: str) -> None:
-        if user_id not in self._histories:
-            self._histories[user_id] = []
-        self._histories[user_id].append({"role": role, "content": content})
+        # Add new message with timestamp
+        entry: tuple[float, dict[str, str]] = (monotonic(), {"role": role, "content": content})
+        self._histories.setdefault(user_id, []).append(entry)
+        # Enforce max turns (each turn has user+assistant)
         if len(self._histories[user_id]) > self._max_turns * 2:
             self._histories[user_id] = self._histories[user_id][-self._max_turns * 2 :]
 

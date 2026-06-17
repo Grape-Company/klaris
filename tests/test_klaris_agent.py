@@ -164,6 +164,56 @@ async def test_chat_uses_conversation_history_for_contextual_followups() -> None
 
 
 @pytest.mark.asyncio
+async def test_chat_resolves_pronoun_followup_search_query_from_history() -> None:
+    duke_loot_chunk: RetrievedChunk = {
+        "id": uuid4(),
+        "chunk_index": 4,
+        "heading": "Drops",
+        "content": (
+            "Page: Duke Erisia\n"
+            "Section: Drops\n"
+            "Duke Erisia can drop equipment and items from his boss chest."
+        ),
+        "token_count": 14,
+        "page_title": "Duke Erisia",
+        "page_url": "https://deepwoken.fandom.com/wiki/Duke_Erisia",
+        "score": 0.98,
+    }
+    retriever = QueryAwareFakeRetriever(
+        {
+            "loots": [],
+            "descreva seus loots": [],
+            "Duke Erisia loots": [duke_loot_chunk],
+        }
+    )
+    agent = FakeKlarisAgent(
+        retriever=retriever,
+        responses=[
+            FakeCompletion("loots"),
+            FakeCompletion("Duke Erisia's drops are described by the retrieved archive result."),
+        ],
+    )
+
+    response = await agent.chat(
+        "descreva seus loots",
+        top_k=8,
+        history=[
+            {"role": "user", "content": "quem era Duke of Erisia?"},
+            {
+                "role": "assistant",
+                "content": (
+                    "The Duke of Erisia, officially Duke Ishamon Erisia, is a humanoid boss."
+                ),
+            },
+        ],
+    )
+
+    assert retriever.calls == [("Duke Erisia loots", 8)]
+    assert "Duke Erisia" in response.response
+    assert response.sources[0].title == "Duke Erisia"
+
+
+@pytest.mark.asyncio
 async def test_ask_retries_instead_of_returning_text_tool_call() -> None:
     retriever = FakeRetriever()
     agent = FakeKlarisAgent(

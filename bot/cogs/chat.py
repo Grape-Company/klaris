@@ -1,0 +1,125 @@
+from __future__ import annotations
+
+import discord
+import structlog
+from discord import app_commands
+from discord.ext import commands
+
+from bot.config import bot_settings
+from bot.embeds import build_answer_embed, build_error_embed
+from bot.errors import handle_api_error
+from bot.i18n import gettext
+from bot.klaris_client import KlarisApiClient
+
+logger = structlog.get_logger()
+
+MAX_MESSAGE_LENGTH = 2000
+MIN_MESSAGE_LENGTH = 1
+
+
+class ConversationStore:
+    """Simple in-memory conversation history store."""
+
+    def __init__(self, max_turns: int = 10) -> None:
+        self._max_turns = max_turns
+        self._histories: dict[str, list[dict[str, str]]] = {}
+
+    def get_history(self, user_id: str) -> list[dict[str, str]]:
+        return self._histories.get(user_id, [])
+
+    def add_message(self, user_id: str, role: str, content: str) -> None:
+        if user_id not in self._histories:
+            self._histories[user_id] = []
+        self._histories[user_id].append({"role": role, "content": content})
+        if len(self._histories[user_id]) > self._max_turns * 2:
+            self._histories[user_id] = self._histories[user_id][-self._max_turns * 2 :]
+
+    def clear(self, user_id: str) -> None:
+        self._histories.pop(user_id, None)
+
+
+_conversation_store = ConversationStore(max_turns=bot_settings.bot_context_max_turns)
+
+
+class ChatCog(commands.Cog):
+    """Cog that provides the /chat command with conversation memory."""
+
+    def __init__(self, bot: commands.Bot, klaris_client: KlarisApiClient) -> None:
+        self.bot = bot
+        self.client = klaris_client
+
+    @app_commands.command(name="chat", description="Chat with Klaris")
+    @app_commands.describe(message="Your message to Klaris")
+    async def chat(self, interaction: discord.Interaction, message: str) -> None:
+        language = bot_settings.bot_default_language
+
+        content = message.strip()
+        if len(content) > MAX_MESSAGE_LENGTH:
+            await interaction.response.send_message(
+                gettext(language, "question_too_long"),
+                ephemeral=True,
+            )
+            return
+
+        if len(content) < MIN_MESSAGE_LENGTH:
+            await interaction.response.send_message(
+                gettext(language, "general_failure"),
+                ephemeral=True,
+            )
+            return
+
+        user_id = str(interaction.user.id)
+
+        _conversation_store.add_message(user_id, "user", content)
+
+        await interaction.response.defer(thinking=True)
+
+        try:
+            payload = await self.client.chat(content, bot_settings.bot_default_top_k)
+        except Exception as exc:
+            error_key = await handle_api_error(
+                exc,
+                endpoint="/api/klaris/chat",
+            )
+            embed = build_error_embed(gettext(language, error_key), language)
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+
+        response: str = str(payload.get("response") or payload.get("answer") or "")
+        sources_raw: list[dict[str, object]] = list(payload.get("sources") or [])
+        answer_id_raw: object = payload.get("answer_id")
+        answer_id: str | None = str(answer_id_raw) if answer_id_raw else None
+
+        _conversation_store.add_message(user_id, "assistant", response)
+
+        if not response:
+            embed = build_error_embed(
+                gettext(language, "not_found"),
+                language,
+            )
+            await interaction.followup.send(embed=embed)
+            return
+
+        embed = build_answer_embed(
+            response,
+            sources_raw,
+            answer_id,
+            discord.Color.green(),
+            language,
+        )
+
+        feedback_view = None
+        if answer_id and bot_settings.bot_api_key:
+            from bot.feedback_view import FeedbackView
+
+            feedback_view = FeedbackView(
+                answer_id=answer_id,
+                bot_api_key=bot_settings.bot_api_key,
+                api_url=bot_settings.rag_api_url,
+                language=language,
+            )
+
+        if feedback_view:
+            await interaction.followup.send(embed=embed, view=feedback_view)
+        else:
+            await interaction.followup.send(embed=embed)

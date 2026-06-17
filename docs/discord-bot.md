@@ -1,90 +1,140 @@
 # Bot Discord
 
-## Arquitetura recomendada
+## Arquitetura
 
-Mantenha o bot como camada separada:
+O bot é uma camada fina que traduz comandos Discord em chamadas HTTP para a API FastAPI:
 
-```text
-Discord slash command -> bot -> POST /api/klaris/chat -> Discord response
+```
+Discord /ask -> bot/cogs/ask.py -> bot/klaris_client.py -> POST /api/klaris/chat -> resposta
+Discord /chat -> bot/cogs/chat.py -> bot/klaris_client.py -> POST /api/klaris/chat -> resposta
+Discord /stats -> bot/cogs/stats.py -> bot/klaris_client.py -> GET /api/klaris/stats -> resposta
+Discord /feedback -> bot/cogs/feedback_cog.py -> bot/klaris_client.py -> POST /api/rag/feedback -> resposta
 ```
 
-O bot não deve acessar banco, MediaWiki API ou OpenAI diretamente. Ele deve chamar a API FastAPI.
+**Regra fundamental:** O bot nunca acessa banco, MediaWiki API ou OpenAI diretamente. Toda operação passa pela API FastAPI.
 
-## Proteções obrigatórias no bot
+## Estrutura do pacote
 
-- Timeout HTTP entre 20 e 35 segundos.
-- Rate limit por usuário e por canal.
-- Limite de tamanho da mensagem para 2000 caracteres.
-- Tratamento de `sources=[]` com resposta neutra.
-- Não logar tokens, headers de autenticação ou conteúdo sensível.
-- Responder de forma efêmera quando houver erro operacional.
-
-## Proteções já existentes na API
-
-- `message`/`query` limitados a 2000 caracteres.
-- `top_k` limitado entre 1 e 20.
-- Timeout nas etapas de recuperação e chamada do modelo.
-- Resposta truncada por `RAG_MAX_ANSWER_CHARS`.
-- Erros do provedor retornam HTTP 503.
-- Ingestão separada da consulta.
-
-## Provedor de IA
-
-Se usar uma chave `nvapi-...`, configure `OPENAI_BASE_URL=https://integrate.api.nvidia.com/v1`. Sem essa URL, a SDK tenta autenticar no endpoint padrão da OpenAI e retorna 401.
-
-## Exemplo de chamada do bot
-
-```python
-import httpx
-
-
-async def ask_deepwoken(api_url: str, question: str) -> dict:
-    async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.post(
-            f"{api_url}/api/klaris/chat",
-            json={"message": question, "top_k": 8},
-        )
-        response.raise_for_status()
-        return response.json()
+```
+bot/
+├── __init__.py          # Re-exports públicos
+├── main.py              # Inicialização do bot, carga de cogs, sync, activity
+├── config.py            # BotSettings (pydantic-settings, lê de .env)
+├── klaris_client.py     # HTTP client com connection pooling (httpx.AsyncClient)
+├── embeds.py            # Construtores de discord.Embed (answer, error, help, stats)
+├── formatting.py        # Formatação texto legado (fallback para testes)
+├── i18n.py              # Strings PT-BR e EN
+├── errors.py            # Hierarquia de exceções e mapeamento HTTP -> mensagem
+├── pagination.py        # PaginatedResponseView (botões anterior/próxima)
+├── feedback_view.py     # FeedbackView (botões 👍/👎)
+├── rate_limit.py        # UserRateLimiter (in-memory, por usuário)
+├── cogs/
+│   ├── ask.py           # /ask - pergunta sobre Deepwoken
+│   ├── chat.py          # /chat - conversa com Klaris (com memória curta)
+│   ├── help.py          # /help - lista comandos
+│   ├── stats.py         # /stats - estatísticas do arquivo
+│   ├── invite.py        # /invite - link de convite
+│   └── feedback_cog.py  # /feedback - feedback manual sobre resposta
 ```
 
-## Formatação recomendada
+## Comandos
 
-Monte a resposta do Discord com:
+| Comando | Descrição |
+|---------|-----------|
+| `/ask <pergunta>` | Pergunta sobre Deepwoken. Responde com embed + fontes + botões 👍/👎 |
+| `/chat <mensagem>` | Conversa com Klaris. Mantém contexto por sessão. |
+| `/help` | Lista todos os comandos disponíveis. |
+| `/stats` | Mostra estatísticas do arquivo (total de respostas, feedbacks, etc.). |
+| `/invite` | Retorna link para adicionar o bot a outros servidores. |
+| `/feedback <answer_id> <rating> [correction]` | Envia feedback manual sobre uma resposta anterior. |
 
-```text
-<answer>
+## Configuração
 
-Fontes:
-- <title>: <url>
-```
-
-Se a mensagem passar de 2000 caracteres, divida em múltiplas mensagens ou reduza fontes exibidas.
-
-## Deploy com Docker Compose
-
-Configure no `.env`:
+### Variáveis de ambiente (no `.env`)
 
 ```env
+# Obrigatórias
 DISCORD_BOT_TOKEN=<token-do-bot>
-RAG_API_URL=http://app:8000
-BOT_DEFAULT_TOP_K=8
+BOT_API_KEY=<mesmo valor de BOT_API_KEY no backend>
+
+# Opcionais
+DISCORD_GUILD_ID=<id-do-servidor>          # Sincronização instantânea de comandos
+DISCORD_INVITE_URL=<url-de-convite>        # Link para /invite
+DISCORD_CLIENT_ID=<client-id>              # Alternativa para montar URL de invite
+BOT_DEFAULT_LANGUAGE=pt-BR
+BOT_ACTIVITY_TYPE=listening
+BOT_ACTIVITY_TEXT=/ask
+BOT_CACHE_TTL_SECONDS=300
+BOT_CONTEXT_TTL_SECONDS=900
+BOT_CONTEXT_MAX_TURNS=10
+BOT_CHANNEL_RATE_LIMIT_COUNT=20
+BOT_CHANNEL_RATE_LIMIT_WINDOW_SECONDS=60
+BOT_GLOBAL_RATE_LIMIT_COUNT=50
+BOT_GLOBAL_RATE_LIMIT_WINDOW_SECONDS=60
+BOT_BLACKLISTED_USERS=
+BOT_BLACKLISTED_GUILDS=
+BOT_LOG_CHANNEL_ID=
 ```
 
-Se quiser registrar slash commands instantaneamente em um servidor específico, configure também:
+### No backend
 
 ```env
-DISCORD_GUILD_ID=<id-do-servidor>
+BOT_API_KEY=<mesmo valor usado no bot>
 ```
 
-Suba API, banco e bot:
+Essa chave permite que o bot envie feedback (`POST /api/rag/feedback`) e consulte estatísticas (`GET /api/klaris/stats`) sem precisar da chave de admin total.
+
+## Deploy
+
+### Local (desenvolvimento)
+
+```bash
+docker compose up --build
+```
+
+Sobe `db`, `app` e `bot`. O bot usa `RAG_API_URL=http://app:8000` (rede Docker).
+
+### Produção (DigitalOcean)
 
 ```bash
 docker compose -f docker-compose.digitalocean.yml up -d --build
 ```
 
-Ver logs:
+### Verificar logs
 
 ```bash
-docker compose -f docker-compose.digitalocean.yml logs -f bot
+docker compose logs -f bot
 ```
+
+## Proteções
+
+### No bot
+
+- Timeout HTTP configurável (`BOT_REQUEST_TIMEOUT_SECONDS`, default 30s)
+- Rate limit por usuário (5 requisições / 60s, configurável)
+- Rate limit por canal (20 / 60s, configurável)
+- Rate limit global (50 / 60s, configurável)
+- Limite de mensagem: 2000 caracteres
+- Blacklist de usuários e guildas
+- Cache de respostas (TTL configurável)
+- Logs estruturados (structlog) sem tokens ou dados sensíveis
+- Erros mapeados por código HTTP (401, 429, 503, etc.)
+
+### No backend
+
+- `message`/`query` limitados a 2000 caracteres
+- `top_k` limitado entre 1 e 20
+- Timeout nas etapas de recuperação e chamada do modelo
+- Resposta truncada por `RAG_MAX_ANSWER_CHARS`
+- Erros do provedor retornam HTTP 503
+- Ingestão separada da consulta
+
+## Feedback de respostas
+
+Após cada `/ask` ou `/chat`, o bot adiciona botões 👍 e 👎 na mensagem. O clique envia `POST /api/rag/feedback` com `X-Bot-Api-Key` e registra o rating no banco (`rag_answer_feedback`).
+
+O `answer_id` necessário para o feedback é retornado pelo backend no campo `answer_id` da resposta de `/api/klaris/chat`.
+
+## Memória de conversa
+
+O cog `chat.py` mantém memória curta em processo (TTL 15 min, max 10 turnos). A chave é `guild_id + channel_id + user_id`. A memória é perdida ao reiniciar o bot.

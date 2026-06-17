@@ -15,5 +15,6 @@ class SourceInfo(BaseModel):
 
 
 class KlarisResponse(BaseModel):
+    answer_id: UUID | None = None
     response: str
     sources: list[SourceInfo]

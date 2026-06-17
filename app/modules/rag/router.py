@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_session
 from app.core.exceptions import RAGError
-from app.core.security import require_admin
+from app.core.security import require_admin, require_bot_or_admin
 from app.modules.rag.schemas import (
     RAGFeedbackRequest,
     RAGFeedbackResponse,
@@ -35,7 +35,7 @@ async def search_chunks(
 @router.post(
     "/feedback",
     response_model=RAGFeedbackResponse,
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(require_bot_or_admin)],
 )
 async def record_feedback(
     request: RAGFeedbackRequest,

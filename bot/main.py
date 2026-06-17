@@ -1,105 +1,77 @@
-import logging
+from __future__ import annotations
 
-import discord
-import httpx
-from discord import app_commands
+import structlog
+from discord import Activity, ActivityType, Intents, Object
+from discord.ext import commands
 
+from bot.cogs.ask import AskCog
+from bot.cogs.chat import ChatCog
+from bot.cogs.feedback_cog import FeedbackCog
+from bot.cogs.help import HelpCog
+from bot.cogs.invite import InviteCog
+from bot.cogs.stats import StatsCog
 from bot.config import bot_settings
-from bot.formatting import format_klaris_response
 from bot.klaris_client import KlarisApiClient
-from bot.rate_limit import UserRateLimiter
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-intents = discord.Intents.default()
-client = discord.Client(intents=intents)
-tree = app_commands.CommandTree(client)
-klaris_client = KlarisApiClient(
-    api_url=bot_settings.rag_api_url,
-    timeout_seconds=bot_settings.bot_request_timeout_seconds,
-)
-rate_limiter = UserRateLimiter(
-    limit=bot_settings.bot_rate_limit_count,
-    window_seconds=bot_settings.bot_rate_limit_window_seconds,
-)
+logger = structlog.get_logger()
 
 
-@client.event  # type: ignore[untyped-decorator]
-async def on_ready() -> None:
-    if bot_settings.discord_guild_id is not None:
-        guild = discord.Object(id=bot_settings.discord_guild_id)
-        tree.copy_global_to(guild=guild)
-        await tree.sync(guild=guild)
-    else:
-        await tree.sync()
-    logger.info("discord_bot_ready user=%s", client.user)
-
-
-@tree.command(name="ask", description="Ask Klaris to research Deepwoken")  # type: ignore[untyped-decorator]
-@app_commands.describe(question="Question about Deepwoken")  # type: ignore[untyped-decorator]
-async def ask(interaction: discord.Interaction, question: str) -> None:
-    if len(question) > 2000:
-        await interaction.response.send_message("Question is too long.", ephemeral=True)
-        return
-
-    user_key = str(interaction.user.id)
-    if not rate_limiter.allow(user_key):
-        await interaction.response.send_message(
-            "Rate limit reached. Try again soon.",
-            ephemeral=True,
+class KlarisBot(commands.Bot):
+    def __init__(self) -> None:
+        intents = Intents.default()
+        super().__init__(command_prefix="", intents=intents)
+        self.klaris_client = KlarisApiClient(
+            api_url=bot_settings.rag_api_url,
+            timeout_seconds=bot_settings.bot_request_timeout_seconds,
+            bot_api_key=bot_settings.bot_api_key,
         )
-        return
 
-    await interaction.response.defer(thinking=True)
+    async def setup_hook(self) -> None:
+        await self.add_cog(AskCog(self, self.klaris_client))
+        await self.add_cog(ChatCog(self, self.klaris_client))
+        await self.add_cog(HelpCog(self))
+        await self.add_cog(StatsCog(self))
+        await self.add_cog(InviteCog(self))
+        await self.add_cog(FeedbackCog(self))
 
-    try:
-        payload = await klaris_client.ask(question, bot_settings.bot_default_top_k)
-    except (httpx.HTTPError, ValueError):
-        logger.exception("klaris_api_request_failed")
-        await interaction.followup.send(
-            "The archive is unavailable right now. Try again soon.",
-            ephemeral=True,
+    async def on_ready(self) -> None:
+        activity_text = bot_settings.bot_activity_text
+        activity_type_str = bot_settings.bot_activity_type.lower()
+
+        type_map = {
+            "playing": ActivityType.playing,
+            "listening": ActivityType.listening,
+            "watching": ActivityType.watching,
+            "competing": ActivityType.competing,
+        }
+        activity_type = type_map.get(activity_type_str, ActivityType.listening)
+
+        await self.change_presence(
+            activity=Activity(type=activity_type, name=activity_text),
         )
-        return
 
-    await interaction.followup.send(format_klaris_response(payload, source_language_text=question))
+        guild_id = bot_settings.discord_guild_id
+        if guild_id is not None:
+            guild = Object(id=guild_id)
+            self.tree.copy_global_to(guild=guild)
+            await self.tree.sync(guild=guild)
+        else:
+            await self.tree.sync()
+
+        logger.info("bot_ready", user=str(self.user), guild_id=guild_id)
+
+    async def close(self) -> None:
+        await self.klaris_client.close()
+        await super().close()
 
 
-@tree.command(name="chat", description="Talk with Klaris Llfiend")  # type: ignore[untyped-decorator]
-@app_commands.describe(message="Your message to Klaris")  # type: ignore[untyped-decorator]
-async def chat(interaction: discord.Interaction, message: str) -> None:
-    if len(message) > 2000:
-        await interaction.response.send_message("Message is too long.", ephemeral=True)
-        return
-
-    user_key = str(interaction.user.id)
-    if not rate_limiter.allow(user_key):
-        await interaction.response.send_message(
-            "Rate limit reached. Try again soon.",
-            ephemeral=True,
-        )
-        return
-
-    await interaction.response.defer(thinking=True)
-
-    try:
-        payload = await klaris_client.chat(message, bot_settings.bot_default_top_k)
-    except (httpx.HTTPError, ValueError):
-        logger.exception("klaris_api_request_failed")
-        await interaction.followup.send(
-            "Klaris is not responding right now. Try again soon.",
-            ephemeral=True,
-        )
-        return
-
-    await interaction.followup.send(format_klaris_response(payload, source_language_text=message))
+bot = KlarisBot()
 
 
 def main() -> None:
     if not bot_settings.discord_bot_token:
         raise RuntimeError("DISCORD_BOT_TOKEN is required")
-    client.run(bot_settings.discord_bot_token)
+    bot.run(bot_settings.discord_bot_token)
 
 
 if __name__ == "__main__":

@@ -58,6 +58,10 @@ class RAGImprovementRepository:
         await self.session.refresh(feedback)
         return feedback
 
+    async def count_answer_logs(self) -> int:
+        result = await self.session.execute(select(RAGAnswerLog))
+        return len(result.scalars().all())
+
     async def feedback_stats(self) -> list[dict[str, object]]:
         result = await self.session.execute(
             select(

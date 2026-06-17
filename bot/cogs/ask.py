@@ -14,6 +14,7 @@ from bot.feedback_view import FeedbackView
 from bot.i18n import gettext
 from bot.klaris_client import KlarisApiClient
 from bot.pagination import PaginatedResponseView
+from bot.rate_limit import UserRateLimiter
 
 logger = structlog.get_logger()
 
@@ -23,9 +24,18 @@ MAX_SOURCES_PER_PAGE = 5
 class AskCog(commands.Cog):
     """Cog that provides the /ask command."""
 
-    def __init__(self, bot: commands.Bot, klaris_client: KlarisApiClient) -> None:
+    def __init__(
+        self,
+        bot: commands.Bot,
+        klaris_client: KlarisApiClient,
+        rate_limiter: UserRateLimiter | None = None,
+    ) -> None:
         self.bot = bot
         self.client = klaris_client
+        self.rate_limiter = rate_limiter or UserRateLimiter(
+            limit=bot_settings.bot_rate_limit_count,
+            window_seconds=bot_settings.bot_rate_limit_window_seconds,
+        )
 
     @app_commands.command(name="ask", description="Ask about Deepwoken")
     @app_commands.describe(question="Your question about Deepwoken")
@@ -35,6 +45,13 @@ class AskCog(commands.Cog):
         if len(question) > 2000:
             await interaction.response.send_message(
                 gettext(language, "question_too_long"),
+                ephemeral=True,
+            )
+            return
+
+        if not self.rate_limiter.allow(str(interaction.user.id)):
+            await interaction.response.send_message(
+                gettext(language, "rate_limit_user"),
                 ephemeral=True,
             )
             return

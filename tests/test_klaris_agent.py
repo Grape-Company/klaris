@@ -124,6 +124,46 @@ async def test_chat_routes_deepwoken_questions_through_internal_ask() -> None:
 
 
 @pytest.mark.asyncio
+async def test_chat_uses_conversation_history_for_contextual_followups() -> None:
+    retriever = FakeRetriever()
+    captured_messages: list[list[ChatCompletionMessageParam]] = []
+
+    class CapturingKlarisAgent(FakeKlarisAgent):
+        async def _chat_completion(
+            self,
+            messages: list[ChatCompletionMessageParam],
+            tool_choice: str = "auto",
+        ) -> Any:
+            captured_messages.append(messages)
+            return await super()._chat_completion(messages, tool_choice)
+
+    agent = CapturingKlarisAgent(
+        retriever=retriever,
+        responses=[
+            FakeCompletion("Shrine of Order requirements"),
+            FakeCompletion("Shrine of Order requires Power 8."),
+        ],
+    )
+
+    response = await agent.chat(
+        "what are its requirements?",
+        top_k=8,
+        history=[
+            {"role": "user", "content": "what is Shrine of Order?"},
+            {"role": "assistant", "content": "It averages invested points."},
+        ],
+    )
+
+    assert retriever.calls == [("Shrine of Order requirements", 8)]
+    assert "Power 8" in response.response
+    assert any(
+        "what is Shrine of Order?" in str(message.get("content", ""))
+        for messages in captured_messages
+        for message in messages
+    )
+
+
+@pytest.mark.asyncio
 async def test_ask_retries_instead_of_returning_text_tool_call() -> None:
     retriever = FakeRetriever()
     agent = FakeKlarisAgent(

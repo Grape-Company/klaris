@@ -19,7 +19,7 @@ async def chat_with_klaris(
 ) -> KlarisResponse:
     agent = KlarisAgent(session)
     try:
-        return await agent.chat(request.message, request.top_k)
+        return await agent.chat(request.message, request.top_k, request.history_as_dicts())
     except RAGError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 

@@ -10,6 +10,7 @@ from bot.embeds import build_answer_embed, build_error_embed
 from bot.errors import handle_api_error
 from bot.i18n import gettext
 from bot.klaris_client import KlarisApiClient
+from bot.rate_limit import UserRateLimiter
 
 logger = structlog.get_logger()
 
@@ -44,9 +45,20 @@ _conversation_store = ConversationStore(max_turns=bot_settings.bot_context_max_t
 class ChatCog(commands.Cog):
     """Cog that provides the /chat command with conversation memory."""
 
-    def __init__(self, bot: commands.Bot, klaris_client: KlarisApiClient) -> None:
+    def __init__(
+        self,
+        bot: commands.Bot,
+        klaris_client: KlarisApiClient,
+        conversation_store: ConversationStore | None = None,
+        rate_limiter: UserRateLimiter | None = None,
+    ) -> None:
         self.bot = bot
         self.client = klaris_client
+        self.conversation_store = conversation_store or _conversation_store
+        self.rate_limiter = rate_limiter or UserRateLimiter(
+            limit=bot_settings.bot_rate_limit_count,
+            window_seconds=bot_settings.bot_rate_limit_window_seconds,
+        )
 
     @app_commands.command(name="chat", description="Chat with Klaris")
     @app_commands.describe(message="Your message to Klaris")
@@ -70,12 +82,20 @@ class ChatCog(commands.Cog):
 
         user_id = str(interaction.user.id)
 
-        _conversation_store.add_message(user_id, "user", content)
+        if not self.rate_limiter.allow(user_id):
+            await interaction.response.send_message(
+                gettext(language, "rate_limit_user"),
+                ephemeral=True,
+            )
+            return
+
+        history = list(self.conversation_store.get_history(user_id))
+        self.conversation_store.add_message(user_id, "user", content)
 
         await interaction.response.defer(thinking=True)
 
         try:
-            payload = await self.client.chat(content, bot_settings.bot_default_top_k)
+            payload = await self.client.chat(content, bot_settings.bot_default_top_k, history)
         except Exception as exc:
             error_key = await handle_api_error(
                 exc,
@@ -90,7 +110,7 @@ class ChatCog(commands.Cog):
         answer_id_raw: object = payload.get("answer_id")
         answer_id: str | None = str(answer_id_raw) if answer_id_raw else None
 
-        _conversation_store.add_message(user_id, "assistant", response)
+        self.conversation_store.add_message(user_id, "assistant", response)
 
         if not response:
             embed = build_error_embed(

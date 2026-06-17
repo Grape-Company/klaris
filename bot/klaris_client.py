@@ -32,10 +32,19 @@ class KlarisApiClient:
     async def ask(self, question: str, top_k: int) -> dict[str, Any]:
         return await self.chat(question, top_k)
 
-    async def chat(self, message: str, top_k: int) -> dict[str, Any]:
+    async def chat(
+        self,
+        message: str,
+        top_k: int,
+        history: list[dict[str, str]] | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, object] = {"message": message, "top_k": top_k}
+        if history:
+            payload["history"] = history
+
         response = await self._client.post(
             "/api/klaris/chat",
-            json={"message": message, "top_k": top_k},
+            json=payload,
         )
         response.raise_for_status()
         data = response.json()

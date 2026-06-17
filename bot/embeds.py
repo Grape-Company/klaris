@@ -31,7 +31,7 @@ def build_answer_embed(
 
     footer = f"{sources_label}: {source_count}"
     if answer_id:
-        footer += f" | {answer_id_label}: {answer_id[:8]}"
+        footer += f" | {answer_id_label}: {answer_id}"
 
     embed.set_footer(text=footer)
     return embed

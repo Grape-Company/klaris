@@ -57,6 +57,28 @@ def truncate_answer(answer: str, max_chars: int) -> str:
     return answer[: max_chars - len(TRUNCATION_SUFFIX)].rstrip() + TRUNCATION_SUFFIX
 
 
+def format_conversation_history(history: Sequence[dict[str, str]] | None) -> str:
+    if not history:
+        return ""
+
+    lines: list[str] = []
+    for turn in history:
+        role = turn.get("role")
+        content = " ".join(turn.get("content", "").split())
+        if role not in {"user", "assistant"} or not content:
+            continue
+        label = "User" if role == "user" else "Klaris"
+        lines.append(f"{label}: {content}")
+    return "\n".join(lines)
+
+
+def format_contextual_question(question: str, history: Sequence[dict[str, str]] | None) -> str:
+    history_text = format_conversation_history(history)
+    if not history_text:
+        return question
+    return f"Conversation history:\n{history_text}\n\nCurrent user message:\n{question}"
+
+
 def collect_sources(raw_chunks: Sequence[RetrievedChunk]) -> list[SourceInfo]:
     selected = select_source_chunks(list(raw_chunks))
     return [
@@ -313,14 +335,26 @@ class KlarisAgent:
             logger.exception("klaris_answer_log_failed")
             return None
 
-    async def chat(self, message: str, top_k: int = 8) -> KlarisResponse:
+    async def chat(
+        self,
+        message: str,
+        top_k: int = 8,
+        history: Sequence[dict[str, str]] | None = None,
+    ) -> KlarisResponse:
         if greeting_answer := small_talk_answer(message):
             return KlarisResponse(response=greeting_answer, sources=[])
 
-        return await self.ask(message, top_k)
+        return await self.ask(message, top_k, history)
 
-    async def ask(self, question: str, top_k: int = 8) -> KlarisResponse:
-        search_query = await self._rewrite_question_for_search(question)
+    async def ask(
+        self,
+        question: str,
+        top_k: int = 8,
+        history: Sequence[dict[str, str]] | None = None,
+    ) -> KlarisResponse:
+        contextual_question = format_contextual_question(question, history)
+        history_text = format_conversation_history(history)
+        search_query = await self._rewrite_question_for_search(contextual_question)
         logger.info("klaris_search_started", search_query=search_query, top_k=top_k)
         try:
             chunks = await asyncio.wait_for(
@@ -383,6 +417,9 @@ class KlarisAgent:
             return KlarisResponse(response=answer, sources=[])
 
         context = format_chunks_for_llm(evidence_chunks)
+        conversation_block = (
+            f"CONVERSATION HISTORY:\n{history_text}\n\n" if history_text else ""
+        )
 
         messages: list[ChatCompletionMessageParam] = [
             {"role": "system", "content": KLARIS_SYSTEM_PROMPT},
@@ -390,6 +427,7 @@ class KlarisAgent:
                 "role": "user",
                 "content": (
                     f"ARCHIVE RESULTS:\n{context}\n\n"
+                    f"{conversation_block}"
                     f"ORIGINAL QUESTION: {question}\n"
                     f"ENGLISH SEARCH QUERY USED: {search_query}\n\n"
                     "Using the archive results above, answer my question as yourself, Klaris."

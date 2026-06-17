@@ -12,6 +12,7 @@ from bot.cogs.invite import InviteCog
 from bot.cogs.stats import StatsCog
 from bot.config import bot_settings
 from bot.klaris_client import KlarisApiClient
+from bot.rate_limit import UserRateLimiter
 
 logger = structlog.get_logger()
 
@@ -25,10 +26,14 @@ class KlarisBot(commands.Bot):
             timeout_seconds=bot_settings.bot_request_timeout_seconds,
             bot_api_key=bot_settings.bot_api_key,
         )
+        self.user_rate_limiter = UserRateLimiter(
+            limit=bot_settings.bot_rate_limit_count,
+            window_seconds=bot_settings.bot_rate_limit_window_seconds,
+        )
 
     async def setup_hook(self) -> None:
-        await self.add_cog(AskCog(self, self.klaris_client))
-        await self.add_cog(ChatCog(self, self.klaris_client))
+        await self.add_cog(AskCog(self, self.klaris_client, self.user_rate_limiter))
+        await self.add_cog(ChatCog(self, self.klaris_client, rate_limiter=self.user_rate_limiter))
         await self.add_cog(HelpCog(self))
         await self.add_cog(StatsCog(self))
         await self.add_cog(InviteCog(self))

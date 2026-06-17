@@ -102,7 +102,7 @@ async def test_ask_returns_not_found_when_retrieval_has_no_strong_source() -> No
 
     response = await agent.ask("como conseguir a Oath Blightsurger?", top_k=8)
 
-    assert response.response == "não encontrei essa informação na base atual."
+    assert response.response == "I could not find that information in the current archive."
     assert response.sources == []
 
 

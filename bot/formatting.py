@@ -1,12 +1,14 @@
 from collections.abc import Mapping, Sequence
 
+from bot.i18n import DEFAULT_LANG, gettext
+
 DISCORD_MESSAGE_LIMIT = 2000
 TRUNCATION_SUFFIX = "\n\n[truncated]"
 
 
 def format_klaris_response(
     payload: Mapping[str, object],
-    source_language_text: str | None = None,
+    language: str = DEFAULT_LANG,
 ) -> str:
     response = str(
         payload.get("response") or payload.get("answer") or "I could not find that information."
@@ -24,34 +26,10 @@ def format_klaris_response(
             if title and url:
                 source_lines.append(f"- {title}: {url}")
         if source_lines:
-            language_text = source_language_text or response
-            parts.append(f"{_source_heading(language_text)}:\n" + "\n".join(source_lines))
+            parts.append(f"{gettext(language, 'sources_label')}:\n" + "\n".join(source_lines))
 
     message = "\n\n".join(part for part in parts if part)
     return _truncate_message(message)
-
-
-def _source_heading(text: str) -> str:
-    portuguese_markers = {
-        " o ",
-        " a ",
-        " os ",
-        " as ",
-        " de ",
-        " da ",
-        " do ",
-        " dos ",
-        " das ",
-        " que ",
-        " não ",
-        " uma ",
-        " seu ",
-        " sua ",
-    }
-    normalized = f" {text.lower()} "
-    if any(marker in normalized for marker in portuguese_markers):
-        return "Fontes"
-    return "Sources"
 
 
 def _truncate_message(message: str) -> str:

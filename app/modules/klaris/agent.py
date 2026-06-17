@@ -446,9 +446,10 @@ class KlarisAgent:
                     f"ORIGINAL QUESTION: {question}\n"
                     f"ENGLISH SEARCH QUERY USED: {search_query}\n\n"
                     "Using the archive results above, answer my question as yourself, Klaris."
-                    " Answer in the original question's language. If the English search query "
-                    "is a meaningful translation or correction of the user's terms, briefly "
-                    "confirm that interpretation in the user's language before answering."
+                    " Always answer in English. Do not switch to Portuguese or any other "
+                    "language. If the English search query is a meaningful translation or "
+                    "correction of the user's terms, briefly confirm that interpretation "
+                    "in English before answering."
                 ),
             },
         ]

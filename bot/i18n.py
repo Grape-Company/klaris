@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+DEFAULT_LANG: str = "en"
+SUPPORTED_LANGUAGES: frozenset[str] = frozenset({DEFAULT_LANG, "pt-BR"})
+
 STRINGS: dict[str, dict[str, str]] = {
     "pt-BR": {
         "rate_limit_user": "Limite de requisições atingido. Tente novamente em breve.",
@@ -84,12 +87,16 @@ STRINGS: dict[str, dict[str, str]] = {
     },
 }
 
-DEFAULT_LANG: str = "pt-BR"
+
+def normalize_language(language: object) -> str:
+    if isinstance(language, str) and language in SUPPORTED_LANGUAGES:
+        return language
+    return DEFAULT_LANG
 
 
 def gettext(language: str, key: str, **fmt: str | int | float) -> str:
     """Resolve an i18n string by language and key, optionally formatting with kwargs."""
-    lang = language if language in STRINGS else DEFAULT_LANG
+    lang = normalize_language(language)
     template = STRINGS[lang].get(key, key)
     if fmt:
         return template.format(**fmt)

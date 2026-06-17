@@ -5,7 +5,6 @@ from typing import Literal
 Language = Literal["en", "pt"]
 
 EN_NOT_FOUND_ANSWER = "I could not find that information in the current archive."
-PT_NOT_FOUND_ANSWER = "não encontrei essa informação na base atual."
 
 QUESTION_PREFIXES = (
     "what is ",
@@ -168,15 +167,9 @@ def small_talk_answer(question: str) -> str | None:
     if normalized not in SMALL_TALK_GREETINGS:
         return None
 
-    if normalized in ENGLISH_SMALL_TALK_GREETINGS:
-        return (
-            "Klaris stirs among old pages. Ask me about Deepwoken, and I will answer "
-            "only with what the archive reveals."
-        )
-
     return (
-        "Klaris desperta entre páginas antigas. Faça sua pergunta sobre Deepwoken, "
-        "e eu responderei apenas com o que a base revelar."
+        "Klaris stirs among old pages. Ask me about Deepwoken, and I will answer "
+        "only with what the archive reveals."
     )
 
 
@@ -190,14 +183,13 @@ def preferred_language(question: str) -> Language:
 
 
 def not_found_answer(question: str) -> str:
-    if preferred_language(question) == "pt":
-        return PT_NOT_FOUND_ANSWER
+    _ = question
     return EN_NOT_FOUND_ANSWER
 
 
 def answer_indicates_not_found(answer: str) -> bool:
     lowered = answer.lower()
-    return PT_NOT_FOUND_ANSWER in lowered or EN_NOT_FOUND_ANSWER.lower() in lowered
+    return EN_NOT_FOUND_ANSWER.lower() in lowered
 
 
 def needs_knowledge_search(message: str) -> bool:

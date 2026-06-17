@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from bot.i18n import normalize_language
 
 
 class BotSettings(BaseSettings):
@@ -17,7 +19,7 @@ class BotSettings(BaseSettings):
     bot_api_key: str = ""
 
     discord_invite_url: str = ""
-    bot_default_language: str = "pt-BR"
+    bot_default_language: str = "en"
 
     bot_activity_type: str = "listening"
     bot_activity_text: str = "/ask"
@@ -46,6 +48,11 @@ class BotSettings(BaseSettings):
         extra="ignore",
         env_ignore_empty=True,
     )
+
+    @field_validator("bot_default_language", mode="before")
+    @classmethod
+    def normalize_default_language(cls, value: object) -> str:
+        return normalize_language(value)
 
 
 bot_settings = BotSettings()

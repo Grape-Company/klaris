@@ -20,7 +20,7 @@ internamente.
 O prompt fixa regras anti-alucinação:
 
 - responder apenas com base no contexto;
-- dizer `não encontrei essa informação na base atual.` quando faltar contexto;
+- dizer `I could not find that information in the current archive.` quando faltar contexto;
 - citar páginas usadas;
 - não inventar builds, números, talentos, requisitos ou mecânicas;
 - não usar conhecimento externo.

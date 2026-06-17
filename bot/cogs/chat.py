@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import discord
 import structlog
 from discord import app_commands
@@ -8,9 +10,9 @@ from discord.ext import commands
 from bot.config import bot_settings
 from bot.embeds import build_answer_embed, build_error_embed
 from bot.errors import handle_api_error
+from bot.feedback_view import FeedbackView
 from bot.i18n import gettext
 from bot.klaris_client import KlarisApiClient
-from bot.rate_limit import UserRateLimiter
 
 logger = structlog.get_logger()
 
@@ -50,15 +52,10 @@ class ChatCog(commands.Cog):
         bot: commands.Bot,
         klaris_client: KlarisApiClient,
         conversation_store: ConversationStore | None = None,
-        rate_limiter: UserRateLimiter | None = None,
     ) -> None:
         self.bot = bot
         self.client = klaris_client
         self.conversation_store = conversation_store or _conversation_store
-        self.rate_limiter = rate_limiter or UserRateLimiter(
-            limit=bot_settings.bot_rate_limit_count,
-            window_seconds=bot_settings.bot_rate_limit_window_seconds,
-        )
 
     @app_commands.command(name="chat", description="Chat with Klaris")
     @app_commands.describe(message="Your message to Klaris")
@@ -82,12 +79,15 @@ class ChatCog(commands.Cog):
 
         user_id = str(interaction.user.id)
 
-        if not self.rate_limiter.allow(user_id):
-            await interaction.response.send_message(
-                gettext(language, "rate_limit_user"),
-                ephemeral=True,
-            )
-            return
+        guard = getattr(self.bot, "bot_guard", None)
+        if guard is not None:
+            result = guard.check_interaction(interaction)
+            if not result.is_allowed():
+                await interaction.response.send_message(
+                    gettext(language, result.i18n_key),
+                    ephemeral=True,
+                )
+                return
 
         history = list(self.conversation_store.get_history(user_id))
         self.conversation_store.add_message(user_id, "user", content)
@@ -106,7 +106,7 @@ class ChatCog(commands.Cog):
             return
 
         response: str = str(payload.get("response") or payload.get("answer") or "")
-        sources_raw: list[dict[str, object]] = list(payload.get("sources") or [])
+        sources_raw: Sequence[dict[str, object]] = list(payload.get("sources") or [])
         answer_id_raw: object = payload.get("answer_id")
         answer_id: str | None = str(answer_id_raw) if answer_id_raw else None
 
@@ -130,12 +130,9 @@ class ChatCog(commands.Cog):
 
         feedback_view = None
         if answer_id and bot_settings.bot_api_key:
-            from bot.feedback_view import FeedbackView
-
             feedback_view = FeedbackView(
                 answer_id=answer_id,
-                bot_api_key=bot_settings.bot_api_key,
-                api_url=bot_settings.rag_api_url,
+                client=self.client,
                 language=language,
             )
 

@@ -9,6 +9,7 @@ from app.modules.wiki.schemas import (
     WikiPageDetail,
     WikiPageResponse,
     WikiSearchResults,
+    WikiSuggestResult,
 )
 from app.modules.wiki.service import WikiService
 
@@ -41,6 +42,16 @@ async def search_pages(
 ) -> WikiSearchResults:
     service = WikiService(session)
     return await service.search(query)
+
+
+@router.get("/suggest", response_model=list[WikiSuggestResult])
+async def suggest_titles(
+    query: str,
+    limit: int = 10,
+    session: AsyncSession = Depends(get_session),
+) -> list[WikiSuggestResult]:
+    service = WikiService(session)
+    return await service.suggest(query, limit)
 
 
 @router.get("/categories", response_model=list[WikiCategoryResponse])

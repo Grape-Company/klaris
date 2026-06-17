@@ -5,6 +5,8 @@ from typing import Any
 from discord import Embed, Interaction
 from discord.ui import Button, View
 
+from bot.i18n import gettext
+
 
 class PaginatedResponseView(View):
     prev_button: Any
@@ -44,4 +46,11 @@ class PaginatedResponseView(View):
         self.prev_button.disabled = self.current_page <= 0
         self.next_button.disabled = self.current_page >= len(self.pages) - 1
         embed = self.pages[self.current_page]
+        if len(self.pages) > 1:
+            page = self.current_page + 1
+            total = len(self.pages)
+            page_text = gettext(self.language, "footer_page", page=page, total=total)
+            original = embed.footer.text or ""
+            if original and page_text not in original:
+                embed.set_footer(text=f"{original} | {page_text}")
         await interaction.response.edit_message(embed=embed, view=self)

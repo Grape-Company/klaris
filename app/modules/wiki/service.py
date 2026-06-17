@@ -9,6 +9,7 @@ from app.modules.wiki.schemas import (
     WikiPageResponse,
     WikiSearchResult,
     WikiSearchResults,
+    WikiSuggestResult,
 )
 
 
@@ -47,6 +48,13 @@ class WikiService:
                 created_at=p.created_at,
                 updated_at=p.updated_at,
             )
+            for p in pages
+        ]
+
+    async def suggest(self, query: str, limit: int = 10) -> list[WikiSuggestResult]:
+        pages = await self.repo.suggest_titles(query, limit)
+        return [
+            WikiSuggestResult(title=p.title, url=p.url)
             for p in pages
         ]
 

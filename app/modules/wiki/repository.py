@@ -25,6 +25,15 @@ class WikiRepository:
         )
         return list(result.scalars().all())
 
+    async def suggest_titles(self, query: str, limit: int = 10) -> list[WikiPage]:
+        result = await self.session.execute(
+            select(WikiPage)
+            .where(WikiPage.title.ilike(f"%{query}%"))
+            .limit(limit)
+            .order_by(WikiPage.title)
+        )
+        return list(result.scalars().all())
+
     async def search_pages(self, query: str, limit: int = 20) -> list[WikiPage]:
         result = await self.session.execute(
             select(WikiPage)

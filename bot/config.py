@@ -34,6 +34,12 @@ class BotSettings(BaseSettings):
     bot_blacklisted_guilds: str = ""
     bot_log_channel_id: int | None = Field(default=None)
 
+    bot_response_cache_enabled: bool = True
+    bot_response_cache_max_size: int = 128
+    bot_response_cache_ttl_seconds: int = 600
+
+    bot_context_backend: str = "in_memory"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

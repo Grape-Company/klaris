@@ -37,6 +37,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "context_cleared": "Memória de conversa limpa.",
         "no_context": "Nenhum contexto de conversa encontrado.",
         "footer_sources": "Fontes: {count}",
+        "footer_page": "Página {page} de {total}",
+        "user_blocked": "Usuário bloqueado. Contate o administrador.",
+        "guild_blocked": "Servidor bloqueado. Contate o administrador.",
+        "ping_response": "🏓 Pong!\nDiscord: {discord_ms}ms\nBackend: {backend_status}",
     },
     "en": {
         "rate_limit_user": "Rate limit reached. Try again shortly.",
@@ -73,6 +77,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "context_cleared": "Conversation context cleared.",
         "no_context": "No conversation context found.",
         "footer_sources": "Sources: {count}",
+        "footer_page": "Page {page} of {total}",
+        "user_blocked": "User blocked. Contact the administrator.",
+        "guild_blocked": "Guild blocked. Contact the administrator.",
+        "ping_response": "🏓 Pong!\nDiscord: {discord_ms}ms\nBackend: {backend_status}",
     },
 }
 

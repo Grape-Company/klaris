@@ -5,6 +5,9 @@ from typing import Any
 import httpx
 import structlog
 
+from bot.cache import LRUCache, ask_cache_key
+from bot.config import bot_settings
+
 logger = structlog.get_logger()
 
 
@@ -25,12 +28,40 @@ class KlarisApiClient:
             timeout=timeout_seconds,
             headers=headers,
         )
+        self._cache_enabled = bot_settings.bot_response_cache_enabled
+        self._cache: LRUCache = LRUCache(
+            max_size=bot_settings.bot_response_cache_max_size,
+            ttl_seconds=bot_settings.bot_response_cache_ttl_seconds,
+        )
 
     async def close(self) -> None:
         await self._client.aclose()
 
+    async def health(self) -> dict[str, str]:
+        response = await self._client.get("/health")
+        response.raise_for_status()
+        data = response.json()
+        if not isinstance(data, dict):
+            raise ValueError("Unexpected health response")
+        return dict(data)
+
     async def ask(self, question: str, top_k: int) -> dict[str, Any]:
-        return await self.chat(question, top_k)
+        if self._cache_enabled:
+            key = ask_cache_key(question, top_k)
+            cached = self._cache.get(key)
+            if cached is not None:
+                return dict(cached)
+
+        result = await self.chat(question, top_k)
+
+        if self._cache_enabled:
+            response_val = result.get("response") or result.get("answer")
+            sources = result.get("sources")
+            if response_val and sources:
+                key = ask_cache_key(question, top_k)
+                self._cache.set(key, result)
+
+        return result
 
     async def chat(
         self,
@@ -75,3 +106,17 @@ class KlarisApiClient:
         if not isinstance(data, dict):
             raise ValueError("Unexpected feedback response")
         return data
+
+    async def suggest_titles(self, query: str, limit: int = 10) -> list[dict[str, str]]:
+        response = await self._client.get(
+            "/api/wiki/suggest",
+            params={"query": query, "limit": limit},
+        )
+        response.raise_for_status()
+        data = response.json()
+        if not isinstance(data, list):
+            raise ValueError("Unexpected suggest response")
+        return [dict(item) for item in data]
+
+    def clear_cache(self) -> None:
+        self._cache.clear()

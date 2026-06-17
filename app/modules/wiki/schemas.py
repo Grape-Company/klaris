@@ -36,3 +36,8 @@ class WikiSearchResult(BaseModel):
 class WikiSearchResults(BaseModel):
     results: list[WikiSearchResult]
     total: int
+
+
+class WikiSuggestResult(BaseModel):
+    title: str
+    url: str

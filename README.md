@@ -94,6 +94,36 @@ O bot deve ser uma aplicação separada que chama esta API. Veja [docs/discord-b
 
 ## Deploy
 
+### VPS com Docker (GitHub Actions + Self-Hosted Runner)
+
+O deploy automático usa um **self-hosted runner** do GitHub Actions rodando na própria VPS. Ao fazer push na `main`, o runner executa `git pull`, reconstrói as imagens e reinicia os containers.
+
+**Setup inicial na VPS:**
+
+1. Instale o Docker:
+   ```bash
+   curl -fsSL https://get.docker.com | bash
+   ```
+
+2. Vá em **Settings > Actions > Runners > New self-hosted runner** no repositório do GitHub.
+
+3. Copie o token exibido e execute o script de setup:
+   ```bash
+   sudo bash scripts/setup-runner.sh <TOKEN>
+   ```
+
+4. Edite o `.env` em `/opt/klaris/.env` com suas chaves reais.
+
+5. Faça um push na `main` para testar o pipeline.
+
+A pipeline executa:
+- `git fetch origin main && git reset --hard origin/main`
+- `docker compose -f docker-compose.digitalocean.yml up -d --build`
+- Health check no endpoint `/health`
+- `docker image prune -f`
+
+### Render + Supabase
+
 Para Render + Supabase, veja [docs/deployment.md](docs/deployment.md).
 
 Exemplo:

@@ -1,0 +1,53 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DEPLOY_PATH: /opt/klaris
+  COMPOSE_FILE: docker-compose.digitalocean.yml
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    environment: production
+    defaults:
+      run:
+        working-directory: ${{ env.DEPLOY_PATH }}
+
+    steps:
+      - name: Pull latest changes
+        run: |
+          git fetch origin main
+          git reset --hard origin/main
+
+      - name: Pull .env from GitHub secrets
+        run: |
+          if [ -n "${{ secrets.ENV_FILE }}" ]; then
+            echo "${{ secrets.ENV_FILE }}" > .env
+          fi
+
+      - name: Rebuild and restart services
+        run: |
+          docker compose -f ${{ env.COMPOSE_FILE }} up -d --build
+
+      - name: Wait for health check
+        run: |
+          echo "Waiting for app to be healthy..."
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
+              echo "App is healthy!"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Health check failed"
+          exit 1
+
+      - name: Clean up unused images
+        run: docker image prune -f

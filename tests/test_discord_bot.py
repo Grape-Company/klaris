@@ -4,6 +4,7 @@ from bot.cache import LRUCache, ask_cache_key
 from bot.cogs.admin import broadcast, user_blacklist
 from bot.cogs.ask import AskCog
 from bot.cogs.chat import ChatCog, ConversationStore
+from bot.config import BotSettings
 from bot.embeds import build_answer_embed
 from bot.feedback_view import FeedbackView
 from bot.formatting import (
@@ -185,7 +186,7 @@ def test_format_klaris_response_accepts_legacy_rag_answer_key() -> None:
     assert "Shrine of Order averages your stats." in message
 
 
-def test_format_klaris_response_uses_portuguese_sources_for_portuguese_response() -> None:
+def test_format_klaris_response_uses_explicit_language_for_sources_heading() -> None:
     message = format_klaris_response(
         {
             "response": "O Shrine of Order reorganiza seus atributos.",
@@ -197,13 +198,13 @@ def test_format_klaris_response_uses_portuguese_sources_for_portuguese_response(
                 }
             ],
         },
-        source_language_text="o que o Shrine of Order faz?",
+        language="pt-BR",
     )
 
     assert "Fontes:" in message
 
 
-def test_format_klaris_response_uses_user_language_for_sources_heading() -> None:
+def test_format_klaris_response_defaults_sources_heading_to_english() -> None:
     message = format_klaris_response(
         {
             "response": "O Shrine of Order reorganiza seus atributos.",
@@ -214,8 +215,7 @@ def test_format_klaris_response_uses_user_language_for_sources_heading() -> None
                     "chunk_id": "chunk-1",
                 }
             ],
-        },
-        source_language_text="what does Shrine of Order do?",
+        }
     )
 
     assert "Sources:" in message
@@ -652,3 +652,14 @@ def test_i18n_existing_keys_unmodified() -> None:
     assert gettext("pt-BR", "rate_limit_global") is not None
     assert gettext("pt-BR", "context_cleared") is not None
     assert gettext("pt-BR", "no_context") is not None
+
+
+def test_bot_default_language_supports_portuguese_and_defaults_to_english() -> None:
+    assert BotSettings(bot_default_language="pt-BR").bot_default_language == "pt-BR"
+    assert BotSettings(bot_default_language="").bot_default_language == "en"
+    assert BotSettings(bot_default_language="fr").bot_default_language == "en"
+
+
+def test_gettext_supports_configured_portuguese_and_defaults_to_english() -> None:
+    assert gettext("pt-BR", "sources_label") == "Fontes"
+    assert gettext("fr", "sources_label") == "Sources"

@@ -5,27 +5,28 @@ def test_system_prompt_uses_klaris_persona_without_relaxing_rag_rules() -> None:
     normalized_prompt = " ".join(SYSTEM_PROMPT.split())
 
     assert "Klaris" in SYSTEM_PROMPT
-    assert "EXCLUSIVAMENTE as informações presentes no CONTEXTO" in normalized_prompt
-    assert "NÃO possui conhecimento externo" in SYSTEM_PROMPT
-    assert "A personalidade nunca tem permissão para alterar fatos" in SYSTEM_PROMPT
+    assert "using ONLY the information present in the supplied CONTEXT" in normalized_prompt
+    assert "You have no external knowledge" in SYSTEM_PROMPT
+    assert "Personality is never allowed to alter facts" in SYSTEM_PROMPT
 
 
 def test_system_prompt_does_not_ask_model_to_render_sources_section() -> None:
-    assert "Não crie uma seção de Fontes" in SYSTEM_PROMPT
+    assert "Do not create a Sources section" in SYSTEM_PROMPT
 
 
-def test_system_prompt_answers_in_same_language_as_user() -> None:
-    assert "English is the primary language" in SYSTEM_PROMPT
-    assert "If the user's language is ambiguous, answer in English" in SYSTEM_PROMPT
+def test_system_prompt_forces_english_responses() -> None:
+    assert "Always answer in English." in SYSTEM_PROMPT
+    assert "Do not switch to Portuguese" in SYSTEM_PROMPT
     assert (
         "A observação final de Klaris também deve seguir o idioma predominante"
         not in SYSTEM_PROMPT
     )
 
 
-def test_system_prompt_does_not_force_portuguese_not_found_phrase() -> None:
-    assert "frase de desconhecimento no idioma selecionado" in SYSTEM_PROMPT
+def test_system_prompt_uses_only_english_not_found_phrase() -> None:
+    assert "frase de desconhecimento no idioma selecionado" not in SYSTEM_PROMPT
     assert "I could not find that information in the current archive." in SYSTEM_PROMPT
+    assert "não encontrei essa informação na base atual" not in SYSTEM_PROMPT
 
 
 def test_system_prompt_does_not_seed_portuguese_flavor_quote() -> None:
@@ -44,6 +45,13 @@ def test_klaris_prompt_forbids_unverified_deepwoken_facts() -> None:
     assert "Do not rely on your own experience" in KLARIS_SYSTEM_PROMPT
     assert "If no archive result supports the answer" in KLARIS_SYSTEM_PROMPT
     assert "Personal tone is allowed; personal factual claims are not" in KLARIS_SYSTEM_PROMPT
+
+
+def test_klaris_prompt_forces_english_responses() -> None:
+    from app.modules.klaris.prompt import KLARIS_SYSTEM_PROMPT
+
+    assert "Always answer in English." in KLARIS_SYSTEM_PROMPT
+    assert "Do not switch to Portuguese" in KLARIS_SYSTEM_PROMPT
 
 
 def test_build_rag_prompt_keeps_context_and_question() -> None:

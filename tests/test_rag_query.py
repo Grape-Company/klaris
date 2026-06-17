@@ -13,6 +13,8 @@ def test_small_talk_answer_handles_greetings_without_sources() -> None:
 
     assert answer is not None
     assert "Klaris" in answer
+    assert "Ask me" in answer
+    assert "Faça sua pergunta" not in answer
 
 
 def test_small_talk_answer_handles_english_greeting_with_bot_name() -> None:
@@ -28,7 +30,6 @@ def test_small_talk_answer_ignores_real_questions() -> None:
 
 
 def test_answer_indicates_not_found_matches_supported_phrases() -> None:
-    assert answer_indicates_not_found("Não encontrei essa informação na base atual.")
     assert answer_indicates_not_found("I could not find that information in the current archive.")
 
 
@@ -45,11 +46,13 @@ def test_preferred_language_detects_portuguese() -> None:
     assert preferred_language("quem é Ethiron?") == "pt"
 
 
-def test_not_found_answer_uses_preferred_language() -> None:
+def test_not_found_answer_is_always_english() -> None:
     assert not_found_answer("who is Ethiron?") == (
         "I could not find that information in the current archive."
     )
-    assert not_found_answer("quem é Ethiron?") == "não encontrei essa informação na base atual."
+    assert not_found_answer("quem é Ethiron?") == (
+        "I could not find that information in the current archive."
+    )
 
 
 def test_analyze_query_extracts_clean_subject_without_leading_article() -> None:

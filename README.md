@@ -149,3 +149,4 @@ Estatísticas agregadas de melhoria ficam em `GET /api/rag/improvement/stats` e 
 ## Decisões
 
 O projeto é um monólito modular. Routers chamam services, services chamam repositories, repositories acessam banco. A ingestão é separada da consulta para preservar latência baixa no RAG. O autoaperfeiçoamento é supervisionado por feedback e métricas; a IA não altera pesos, código, prompt ou fatos sem revisão.
+

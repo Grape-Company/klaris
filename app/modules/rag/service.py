@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.exceptions import RAGError
 from app.modules.rag.answer_policy import disambiguation_answer
-from app.modules.rag.improvement import FeedbackRating, summarize_feedback
+from app.modules.rag.improvement import FeedbackRating
 from app.modules.rag.prompt import RAG_PROMPT_VERSION, build_rag_prompt
 from app.modules.rag.query import answer_indicates_not_found, not_found_answer, small_talk_answer
 from app.modules.rag.repository import RAGImprovementRepository
@@ -170,13 +170,8 @@ class RagService:
         )
 
     async def improvement_stats(self) -> RAGImprovementStatsResponse:
-        summary = summarize_feedback(await self.improvement_repo.feedback_stats())
-        return RAGImprovementStatsResponse(
-            total_feedback=summary.total_feedback,
-            positive_feedback=summary.positive_feedback,
-            negative_feedback=summary.negative_feedback,
-            correction_count=summary.correction_count,
-        )
+        summary = await self.improvement_repo.feedback_summary()
+        return RAGImprovementStatsResponse(**summary)
 
     async def _search_with_timeout(self, query: str, top_k: int) -> list[RetrievedChunk]:
         try:

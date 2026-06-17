@@ -1,6 +1,7 @@
 import time
 
 from bot.cache import LRUCache, ask_cache_key
+from bot.cogs.admin import user_blacklist
 from bot.cogs.ask import AskCog
 from bot.cogs.chat import ChatCog, ConversationStore
 from bot.embeds import build_answer_embed
@@ -58,6 +59,13 @@ class FakeFollowup:
 class FakeUser:
     id = 123
 
+    def __init__(self) -> None:
+        self.guild_permissions = type(
+            "FakePermissions",
+            (),
+            {"administrator": True},
+        )()
+
 
 class FakeGuild:
     id = 456
@@ -100,6 +108,10 @@ class FakeBot:
         self.bot_guard = guard
         self.notifier = None
         self.conversation_store = ConversationStore(max_turns=10)
+        self.guilds: list[object] = []
+
+    async def is_owner(self, _user: object) -> bool:
+        return False
 
 
 def test_format_klaris_response_includes_sources() -> None:
@@ -305,6 +317,28 @@ def test_bot_guard_user_rate_limit() -> None:
     assert result2.reason == "user_rate_limit"
 
 
+def test_bot_guard_user_rate_limit_does_not_charge_shared_buckets() -> None:
+    guard = BotGuard(
+        user_limiter=WindowRateLimiter(limit=1, window_seconds=60),
+        channel_limiter=WindowRateLimiter(limit=2, window_seconds=60),
+        global_limiter=WindowRateLimiter(limit=2, window_seconds=60),
+        blacklisted_users=set(),
+        blacklisted_guilds=set(),
+    )
+    limited_interaction = FakeInteraction()
+
+    assert guard.check_interaction(limited_interaction).is_allowed()
+    assert guard.check_interaction(limited_interaction).reason == "user_rate_limit"
+    assert guard.check_interaction(limited_interaction).reason == "user_rate_limit"
+
+    other_interaction = FakeInteraction()
+    other_interaction.user.id = 999
+
+    result = guard.check_interaction(other_interaction)
+
+    assert result.is_allowed()
+
+
 def test_bot_guard_allows_normal_interaction() -> None:
     guard = BotGuard(
         user_limiter=WindowRateLimiter(limit=10, window_seconds=60),
@@ -318,6 +352,28 @@ def test_bot_guard_allows_normal_interaction() -> None:
     result = guard.check_interaction(interaction)
 
     assert result.is_allowed()
+
+
+async def test_admin_commands_require_bot_owner_not_guild_admin() -> None:
+    guard = BotGuard(
+        user_limiter=WindowRateLimiter(limit=10, window_seconds=60),
+        channel_limiter=WindowRateLimiter(limit=10, window_seconds=60),
+        global_limiter=WindowRateLimiter(limit=10, window_seconds=60),
+        blacklisted_users=set(),
+        blacklisted_guilds=set(),
+    )
+    bot = FakeBot(guard=guard)
+    interaction = FakeInteraction()
+    interaction.client = bot
+
+    await user_blacklist.callback(interaction, "add", "999")
+
+    assert "999" not in guard._blacklisted_users
+    assert (
+        interaction.response.messages[0]["content"]
+        == "Você não tem permissão para usar este comando."
+    )
+    assert interaction.response.messages[0]["ephemeral"] is True
 
 
 async def test_ask_guard_blocks_before_api_call() -> None:

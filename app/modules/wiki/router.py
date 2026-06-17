@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_session
@@ -46,8 +46,8 @@ async def search_pages(
 
 @router.get("/suggest", response_model=list[WikiSuggestResult])
 async def suggest_titles(
-    query: str,
-    limit: int = 10,
+    query: str = Query(..., min_length=1, max_length=100),
+    limit: int = Query(default=10, ge=1, le=25),
     session: AsyncSession = Depends(get_session),
 ) -> list[WikiSuggestResult]:
     service = WikiService(session)

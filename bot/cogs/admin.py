@@ -17,6 +17,13 @@ class AdminGroup(app_commands.Group):
 _admin_group = AdminGroup(name="admin", description="Administrative commands")
 
 
+async def _is_bot_owner(interaction: discord.Interaction) -> bool:
+    is_owner = getattr(interaction.client, "is_owner", None)
+    if is_owner is None:
+        return False
+    return bool(await is_owner(interaction.user))
+
+
 @_admin_group.command(name="user-blacklist", description="Manage user blacklist")
 @app_commands.describe(action="add, remove, or list", user_id="User ID (required for add/remove)")
 async def user_blacklist(
@@ -24,7 +31,7 @@ async def user_blacklist(
     action: str,
     user_id: str | None = None,
 ) -> None:
-    if not interaction.user.guild_permissions.administrator:  # type: ignore[union-attr]
+    if not await _is_bot_owner(interaction):
         await interaction.response.send_message(ADMIN_PERMISSION_ERROR, ephemeral=True)
         return
 
@@ -75,7 +82,7 @@ async def guild_blacklist(
     action: str,
     guild_id: str | None = None,
 ) -> None:
-    if not interaction.user.guild_permissions.administrator:  # type: ignore[union-attr]
+    if not await _is_bot_owner(interaction):
         await interaction.response.send_message(ADMIN_PERMISSION_ERROR, ephemeral=True)
         return
 
@@ -121,7 +128,7 @@ async def guild_blacklist(
 
 @_admin_group.command(name="stats", description="Show bot stats")
 async def admin_stats(interaction: discord.Interaction) -> None:
-    if not interaction.user.guild_permissions.administrator:  # type: ignore[union-attr]
+    if not await _is_bot_owner(interaction):
         await interaction.response.send_message(ADMIN_PERMISSION_ERROR, ephemeral=True)
         return
 
@@ -151,7 +158,7 @@ async def admin_stats(interaction: discord.Interaction) -> None:
 @_admin_group.command(name="broadcast", description="Send a message to all guilds")
 @app_commands.describe(message="Message to broadcast")
 async def broadcast(interaction: discord.Interaction, message: str) -> None:
-    if not interaction.user.guild_permissions.administrator:  # type: ignore[union-attr]
+    if not await _is_bot_owner(interaction):
         await interaction.response.send_message(ADMIN_PERMISSION_ERROR, ephemeral=True)
         return
 

@@ -29,8 +29,7 @@ class WindowRateLimiter:
         current = monotonic() if now is None else now
         events = self._events[key]
 
-        while events and current - events[0] >= self.window_seconds:
-            events.popleft()
+        self._prune(events, current)
 
         if len(events) >= self.limit:
             return False
@@ -38,14 +37,25 @@ class WindowRateLimiter:
         events.append(current)
         return True
 
+    def can_allow(self, key: str, now: float | None = None) -> bool:
+        current = monotonic() if now is None else now
+        events = self._events[key]
+
+        self._prune(events, current)
+
+        return len(events) < self.limit
+
     def remaining(self, key: str, now: float | None = None) -> int:
         current = monotonic() if now is None else now
         events = self._events[key]
 
-        while events and current - events[0] >= self.window_seconds:
-            events.popleft()
+        self._prune(events, current)
 
         return max(0, self.limit - len(events))
+
+    def _prune(self, events: deque[float], current: float) -> None:
+        while events and current - events[0] >= self.window_seconds:
+            events.popleft()
 
 
 class BotGuard:
@@ -82,27 +92,34 @@ class BotGuard:
                 i18n_key="guild_blocked",
             )
 
-        if not self._global_limiter.allow("global"):
+        now = monotonic()
+        global_key = "global"
+        channel_key = f"channel:{channel_id}"
+        user_key = f"user:{user_id}"
+
+        if not self._global_limiter.can_allow(global_key, now):
             return GuardResult(
                 allowed=False,
                 reason="global_rate_limit",
                 i18n_key="rate_limit_global",
             )
 
-        channel_key = f"channel:{channel_id}"
-        if not self._channel_limiter.allow(channel_key):
+        if not self._channel_limiter.can_allow(channel_key, now):
             return GuardResult(
                 allowed=False,
                 reason="channel_rate_limit",
                 i18n_key="rate_limit_channel",
             )
 
-        user_key = f"user:{user_id}"
-        if not self._user_limiter.allow(user_key):
+        if not self._user_limiter.can_allow(user_key, now):
             return GuardResult(
                 allowed=False,
                 reason="user_rate_limit",
                 i18n_key="rate_limit_user",
             )
+
+        self._global_limiter.allow(global_key, now)
+        self._channel_limiter.allow(channel_key, now)
+        self._user_limiter.allow(user_key, now)
 
         return GuardResult(allowed=True)

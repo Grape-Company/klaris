@@ -52,20 +52,21 @@ fi
 # Add runner user to docker group
 usermod -aG docker "${RUNNER_USER}"
 
-# --- Setup runner ---
+# --- Setup runner (as runner user) ---
 mkdir -p "${RUNNER_DIR}"
-cd "${RUNNER_DIR}"
+chown "${RUNNER_USER}:${RUNNER_USER}" "${RUNNER_DIR}"
 
-if [ ! -f "run.sh" ]; then
+if [ ! -f "${RUNNER_DIR}/run.sh" ]; then
   echo "Downloading GitHub Actions runner v${RUNNER_VERSION}..."
   DOWNLOAD_URL="https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz"
-  curl -fsSL "${DOWNLOAD_URL}" -o runner.tar.gz
-  tar xzf runner.tar.gz
-  rm runner.tar.gz
+  curl -fsSL "${DOWNLOAD_URL}" -o /tmp/runner.tar.gz
+  tar xzf /tmp/runner.tar.gz -C "${RUNNER_DIR}"
+  rm /tmp/runner.tar.gz
+  chown -R "${RUNNER_USER}:${RUNNER_USER}" "${RUNNER_DIR}"
 fi
 
 echo "Configuring runner..."
-./config.sh \
+sudo -u "${RUNNER_USER}" "${RUNNER_DIR}/config.sh" \
   --url "https://github.com/${GITHUB_ORG}/${GITHUB_REPO}" \
   --token "${TOKEN}" \
   --name "$(hostname)-runner" \
@@ -75,11 +76,11 @@ echo "Configuring runner..."
 
 # --- Install as service ---
 echo "Installing runner as systemd service..."
-./svc.sh install "${RUNNER_USER}"
-./svc.sh start
+"${RUNNER_DIR}/svc.sh" install "${RUNNER_USER}"
+"${RUNNER_DIR}/svc.sh" start
 
 echo "Runner service status:"
-./svc.sh status
+"${RUNNER_DIR}/svc.sh" status
 
 # --- Clone repo to deploy directory ---
 if [ ! -d "${DEPLOY_DIR}/.git" ]; then

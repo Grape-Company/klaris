@@ -76,11 +76,12 @@ sudo -u "${RUNNER_USER}" "${RUNNER_DIR}/config.sh" \
 
 # --- Install as service ---
 echo "Installing runner as systemd service..."
-"${RUNNER_DIR}/svc.sh" install "${RUNNER_USER}"
-"${RUNNER_DIR}/svc.sh" start
+cd "${RUNNER_DIR}"
+./svc.sh install "${RUNNER_USER}"
+./svc.sh start
 
 echo "Runner service status:"
-"${RUNNER_DIR}/svc.sh" status
+./svc.sh status
 
 # --- Clone repo to deploy directory ---
 if [ ! -d "${DEPLOY_DIR}/.git" ]; then

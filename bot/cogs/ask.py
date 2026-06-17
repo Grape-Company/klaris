@@ -14,11 +14,33 @@ from bot.feedback_view import FeedbackView
 from bot.i18n import gettext
 from bot.klaris_client import KlarisApiClient
 from bot.pagination import PaginatedResponseView
-from bot.rate_limit import UserRateLimiter
 
 logger = structlog.get_logger()
 
 MAX_SOURCES_PER_PAGE = 5
+
+
+async def _suggest_autocomplete(
+    interaction: discord.Interaction,
+    current: str,
+) -> list[app_commands.Choice[str]]:
+    if len(current) < 2:
+        return []
+    client: KlarisApiClient = interaction.client.klaris_client  # type: ignore[attr-defined]
+    try:
+        suggestions = await client.suggest_titles(query=current, limit=10)
+    except Exception:
+        return []
+    seen: set[str] = set()
+    results: list[app_commands.Choice[str]] = []
+    for item in suggestions:
+        title = item.get("title", "")
+        if title and title not in seen:
+            seen.add(title)
+            results.append(app_commands.Choice(name=title[:100], value=title[:100]))
+            if len(results) >= 10:
+                break
+    return results
 
 
 class AskCog(commands.Cog):
@@ -28,17 +50,13 @@ class AskCog(commands.Cog):
         self,
         bot: commands.Bot,
         klaris_client: KlarisApiClient,
-        rate_limiter: UserRateLimiter | None = None,
     ) -> None:
         self.bot = bot
         self.client = klaris_client
-        self.rate_limiter = rate_limiter or UserRateLimiter(
-            limit=bot_settings.bot_rate_limit_count,
-            window_seconds=bot_settings.bot_rate_limit_window_seconds,
-        )
 
     @app_commands.command(name="ask", description="Ask about Deepwoken")
     @app_commands.describe(question="Your question about Deepwoken")
+    @app_commands.autocomplete(question=_suggest_autocomplete)
     async def ask(self, interaction: discord.Interaction, question: str) -> None:
         language = bot_settings.bot_default_language
 
@@ -49,12 +67,15 @@ class AskCog(commands.Cog):
             )
             return
 
-        if not self.rate_limiter.allow(str(interaction.user.id)):
-            await interaction.response.send_message(
-                gettext(language, "rate_limit_user"),
-                ephemeral=True,
-            )
-            return
+        guard = getattr(self.bot, "bot_guard", None)
+        if guard is not None:
+            result = guard.check_interaction(interaction)
+            if not result.is_allowed():
+                await interaction.response.send_message(
+                    gettext(language, result.i18n_key),
+                    ephemeral=True,
+                )
+                return
 
         await interaction.response.defer(thinking=True)
 
@@ -98,8 +119,7 @@ class AskCog(commands.Cog):
         if answer_id and bot_settings.bot_api_key:
             feedback = FeedbackView(
                 answer_id=answer_id,
-                bot_api_key=bot_settings.bot_api_key,
-                api_url=bot_settings.rag_api_url,
+                client=self.client,
                 language=language,
             )
             for item in feedback.children:

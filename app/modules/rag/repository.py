@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.rag.models import RAGAnswerFeedback, RAGAnswerLog
@@ -59,8 +59,8 @@ class RAGImprovementRepository:
         return feedback
 
     async def count_answer_logs(self) -> int:
-        result = await self.session.execute(select(RAGAnswerLog))
-        return len(result.scalars().all())
+        result = await self.session.execute(select(func.count(RAGAnswerLog.id)))
+        return int(result.scalar_one())
 
     async def feedback_stats(self) -> list[dict[str, object]]:
         result = await self.session.execute(
@@ -71,3 +71,29 @@ class RAGImprovementRepository:
         )
 
         return [{"rating": row.rating, "correction": row.correction} for row in result]
+
+    async def feedback_summary(self) -> dict[str, int]:
+        result = await self.session.execute(
+            select(
+                func.count(RAGAnswerFeedback.id).label("total_feedback"),
+                func.sum(
+                    case((RAGAnswerFeedback.rating == "positive", 1), else_=0)
+                ).label("positive_feedback"),
+                func.sum(
+                    case((RAGAnswerFeedback.rating == "negative", 1), else_=0)
+                ).label("negative_feedback"),
+                func.sum(
+                    case(
+                        (func.length(func.trim(RAGAnswerFeedback.correction)) > 0, 1),
+                        else_=0,
+                    )
+                ).label("correction_count"),
+            )
+        )
+        row = result.one()
+        return {
+            "total_feedback": int(row.total_feedback or 0),
+            "positive_feedback": int(row.positive_feedback or 0),
+            "negative_feedback": int(row.negative_feedback or 0),
+            "correction_count": int(row.correction_count or 0),
+        }

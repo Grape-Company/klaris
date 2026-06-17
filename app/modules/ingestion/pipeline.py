@@ -1,6 +1,7 @@
 import uuid
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import quote
 
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +16,17 @@ from app.modules.wiki.models import IngestionRun, WikiChunk, WikiPage
 from app.modules.wiki.repository import WikiRepository
 
 logger = structlog.get_logger()
+
+
+def build_wiki_page_url(api_url: str, title: str) -> str:
+    base_url = api_url
+    if base_url.endswith("/api.php"):
+        base_url = base_url.removesuffix("/api.php")
+    elif "/api.php" in base_url:
+        base_url = base_url.split("/api.php")[0]
+
+    page_path = quote(title.replace(" ", "_"), safe="/")
+    return f"{base_url}/wiki/{page_path}"
 
 
 class IngestionPipeline:
@@ -81,12 +93,7 @@ class IngestionPipeline:
 
         page_info = await self.client.get_page_info(title)
         page_id = page_info.get("pageid") if page_info else None
-        base_url = settings.mediawiki_api_url
-        if base_url.endswith("/api.php"):
-            base_url = base_url.removesuffix("/api.php")
-        elif "/api.php" in base_url:
-            base_url = base_url.split("/api.php")[0]
-        url = f"{base_url}/wiki/{title.replace(' ', '_')}"
+        url = build_wiki_page_url(settings.mediawiki_api_url, title)
 
         clean_text = clean_html(html)
         content_hash = compute_content_hash(clean_text)

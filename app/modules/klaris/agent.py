@@ -173,6 +173,14 @@ def _meaningful_tokens(value: str) -> set[str]:
     return {token.casefold() for token in re.findall(r"[A-Za-zÀ-ÿ']+", value) if len(token) > 2}
 
 
+def _query_log_metadata(value: str) -> dict[str, int | bool]:
+    return {
+        "query_length": len(value),
+        "query_word_count": len(value.split()),
+        "query_has_non_ascii": any(not char.isascii() for char in value),
+    }
+
+
 class KlarisAgent:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -299,8 +307,8 @@ class KlarisAgent:
 
         logger.info(
             "klaris_search_query_canonicalized",
-            first_query=search_query,
-            strict_query=strict_query,
+            first_query_length=len(search_query),
+            strict_query_length=len(strict_query),
         )
         return strict_query or search_query
 
@@ -355,7 +363,11 @@ class KlarisAgent:
         contextual_question = format_contextual_question(question, history)
         history_text = format_conversation_history(history)
         search_query = await self._rewrite_question_for_search(contextual_question)
-        logger.info("klaris_search_started", search_query=search_query, top_k=top_k)
+        logger.info(
+            "klaris_search_started",
+            top_k=top_k,
+            **_query_log_metadata(search_query),
+        )
         try:
             chunks = await asyncio.wait_for(
                 self.retriever.search(search_query, top_k),
@@ -373,9 +385,9 @@ class KlarisAgent:
         ) and search_query.casefold() != question.casefold():
             logger.info(
                 "klaris_search_retrying_original_question",
-                search_query=search_query,
-                original_question=question,
                 chunk_count=len(chunks),
+                search_query_length=len(search_query),
+                original_question_length=len(question),
             )
             try:
                 original_chunks = await asyncio.wait_for(
@@ -392,26 +404,29 @@ class KlarisAgent:
             selected_chunks = select_source_chunks(evidence_chunks)
 
         if not chunks:
-            logger.warning("klaris_search_no_chunks", search_query=search_query)
+            logger.warning(
+                "klaris_search_no_chunks",
+                **_query_log_metadata(search_query),
+            )
             answer = not_found_answer(question)
             return KlarisResponse(response=answer, sources=[])
 
         top_chunk = chunks[0]
         logger.info(
             "klaris_search_completed",
-            search_query=search_query,
             chunk_count=len(chunks),
             top_score=top_chunk["score"],
             top_title=top_chunk["page_title"],
+            **_query_log_metadata(search_query),
         )
 
         if not evidence_chunks or not selected_chunks:
             logger.warning(
                 "klaris_search_weak_evidence",
-                search_query=search_query,
                 chunk_count=len(chunks),
                 top_score=top_chunk["score"],
                 top_title=top_chunk["page_title"],
+                **_query_log_metadata(search_query),
             )
             answer = not_found_answer(question)
             return KlarisResponse(response=answer, sources=[])

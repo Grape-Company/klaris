@@ -26,12 +26,16 @@ class FeedbackModal(Modal):
         client: KlarisApiClient,
         language: str,
         rating: str = "negative",
+        feedback_view: FeedbackView | None = None,
+        origin_message: Any | None = None,
     ) -> None:
         super().__init__(title="Feedback — Correção")
         self.answer_id = answer_id
         self.client = client
         self.language = language
         self.rating = rating
+        self.feedback_view = feedback_view
+        self.origin_message = origin_message
 
     async def on_submit(self, interaction: Interaction) -> None:
         try:
@@ -58,6 +62,11 @@ class FeedbackModal(Modal):
             rating=self.rating,
             correction=bool(self.correction.value),
         )
+
+        if self.feedback_view is not None:
+            self.feedback_view.disable_feedback_buttons()
+            if self.origin_message is not None:
+                await self.origin_message.edit(view=self.feedback_view)
 
         await interaction.response.send_message(
             gettext(self.language, "feedback_recorded"),
@@ -95,6 +104,11 @@ class FeedbackView(View):
         self.add_item(self.down_button)
         self.add_item(self.fix_button)
 
+    def disable_feedback_buttons(self) -> None:
+        self.up_button.disabled = True
+        self.down_button.disabled = True
+        self.fix_button.disabled = True
+
     async def _on_positive(self, interaction: Interaction) -> None:
         if self._submitted:
             return
@@ -124,9 +138,7 @@ class FeedbackView(View):
             rating="positive",
         )
 
-        self.up_button.disabled = True
-        self.down_button.disabled = True
-        self.fix_button.disabled = True
+        self.disable_feedback_buttons()
         await interaction.response.edit_message(view=self)
         await interaction.followup.send(
             gettext(self.language, "feedback_recorded"),
@@ -134,19 +146,39 @@ class FeedbackView(View):
         )
 
     async def _on_negative(self, interaction: Interaction) -> None:
+        if self._submitted:
+            return
+        self._submitted = True
+        self.disable_feedback_buttons()
+        origin_message = getattr(interaction, "message", None)
+        if origin_message is not None:
+            await origin_message.edit(view=self)
+
         modal = FeedbackModal(
             answer_id=self.answer_id,
             client=self.client,
             language=self.language,
             rating="negative",
+            feedback_view=self,
+            origin_message=origin_message,
         )
         await interaction.response.send_modal(modal)
 
     async def _on_fix(self, interaction: Interaction) -> None:
+        if self._submitted:
+            return
+        self._submitted = True
+        self.disable_feedback_buttons()
+        origin_message = getattr(interaction, "message", None)
+        if origin_message is not None:
+            await origin_message.edit(view=self)
+
         modal = FeedbackModal(
             answer_id=self.answer_id,
             client=self.client,
             language=self.language,
             rating="negative",
+            feedback_view=self,
+            origin_message=origin_message,
         )
         await interaction.response.send_modal(modal)

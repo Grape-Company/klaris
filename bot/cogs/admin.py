@@ -162,6 +162,8 @@ async def broadcast(interaction: discord.Interaction, message: str) -> None:
         await interaction.response.send_message(ADMIN_PERMISSION_ERROR, ephemeral=True)
         return
 
+    await interaction.response.defer(thinking=True)
+
     embed = discord.Embed(
         description=message,
         color=discord.Color.blue(),
@@ -179,7 +181,7 @@ async def broadcast(interaction: discord.Interaction, message: str) -> None:
         except Exception:
             failed += 1
 
-    await interaction.response.send_message(
+    await interaction.followup.send(
         f"Mensagem enviada para {sent} servidores ({failed} falhas).",
         ephemeral=True,
     )

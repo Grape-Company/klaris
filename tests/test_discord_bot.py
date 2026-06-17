@@ -1,10 +1,11 @@
 import time
 
 from bot.cache import LRUCache, ask_cache_key
-from bot.cogs.admin import user_blacklist
+from bot.cogs.admin import broadcast, user_blacklist
 from bot.cogs.ask import AskCog
 from bot.cogs.chat import ChatCog, ConversationStore
 from bot.embeds import build_answer_embed
+from bot.feedback_view import FeedbackView
 from bot.formatting import (
     DISCORD_MESSAGE_LIMIT,
     format_klaris_response,
@@ -32,6 +33,12 @@ class FakeResponse:
 
     async def defer(self, *, thinking: bool = False) -> None:
         self.deferred = thinking
+
+    async def send_modal(self, modal: object) -> None:
+        self.messages.append({"modal": modal})
+
+    async def edit_message(self, *, view: object | None = None) -> None:
+        self.messages.append({"view": view})
 
 
 class FakeFollowup:
@@ -84,6 +91,7 @@ class FakeKlarisClient:
     def __init__(self) -> None:
         self.ask_calls: list[tuple[str, int]] = []
         self.chat_calls: list[tuple[str, int, list[dict[str, str]] | None]] = []
+        self.feedback_calls: list[tuple[str, str, str | None]] = []
 
     async def ask(self, question: str, top_k: int) -> dict[str, object]:
         self.ask_calls.append((question, top_k))
@@ -101,6 +109,15 @@ class FakeKlarisClient:
     async def health(self) -> dict[str, str]:
         return {"status": "ok"}
 
+    async def submit_feedback(
+        self,
+        answer_id: str,
+        rating: str,
+        correction: str | None = None,
+    ) -> dict[str, object]:
+        self.feedback_calls.append((answer_id, rating, correction))
+        return {"status": "recorded"}
+
 
 class FakeBot:
     def __init__(self, guard: BotGuard | None = None) -> None:
@@ -112,6 +129,35 @@ class FakeBot:
 
     async def is_owner(self, _user: object) -> bool:
         return False
+
+
+class FakeOwnerBot(FakeBot):
+    async def is_owner(self, _user: object) -> bool:
+        return True
+
+
+class FakeMessage:
+    def __init__(self) -> None:
+        self.views: list[object] = []
+
+    async def edit(self, *, view: object | None = None) -> None:
+        self.views.append(view)
+
+
+class FakeSystemChannel:
+    def __init__(self, interaction: FakeInteraction) -> None:
+        self.interaction = interaction
+        self.sent = 0
+
+    async def send(self, *, embed: object | None = None) -> None:
+        del embed
+        assert self.interaction.response.deferred is True
+        self.sent += 1
+
+
+class FakeBroadcastGuild:
+    def __init__(self, channel: FakeSystemChannel | None) -> None:
+        self.system_channel = channel
 
 
 def test_format_klaris_response_includes_sources() -> None:
@@ -374,6 +420,45 @@ async def test_admin_commands_require_bot_owner_not_guild_admin() -> None:
         == "Você não tem permissão para usar este comando."
     )
     assert interaction.response.messages[0]["ephemeral"] is True
+
+
+async def test_feedback_negative_disables_view_before_opening_modal() -> None:
+    client = FakeKlarisClient()
+    view = FeedbackView(
+        answer_id="answer-1",
+        client=client,  # type: ignore[arg-type]
+        language="pt-BR",
+    )
+    interaction = FakeInteraction()
+    interaction.message = FakeMessage()
+
+    await view._on_negative(interaction)  # type: ignore[arg-type]
+    await view._on_negative(interaction)  # type: ignore[arg-type]
+
+    assert len(interaction.response.messages) == 1
+    assert "modal" in interaction.response.messages[0]
+    assert view.up_button.disabled is True
+    assert view.down_button.disabled is True
+    assert view.fix_button.disabled is True
+    assert interaction.message.views == [view]
+
+
+async def test_broadcast_defers_before_sending_to_guilds() -> None:
+    bot = FakeOwnerBot()
+    interaction = FakeInteraction()
+    interaction.client = bot
+    channel = FakeSystemChannel(interaction)
+    bot.guilds = [FakeBroadcastGuild(channel)]
+
+    await broadcast.callback(interaction, "server notice")
+
+    assert interaction.response.deferred is True
+    assert channel.sent == 1
+    assert (
+        interaction.followup.messages[0]["content"]
+        == "Mensagem enviada para 1 servidores (0 falhas)."
+    )
+    assert interaction.followup.messages[0]["ephemeral"] is True
 
 
 async def test_ask_guard_blocks_before_api_call() -> None:

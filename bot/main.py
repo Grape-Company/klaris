@@ -28,6 +28,7 @@ class KlarisBot(commands.Bot):
             api_url=bot_settings.rag_api_url,
             timeout_seconds=bot_settings.bot_request_timeout_seconds,
             bot_api_key=bot_settings.bot_api_key,
+            admin_api_key=bot_settings.admin_api_key,
         )
 
         blacklisted_users = _parse_blacklist(bot_settings.bot_blacklisted_users)

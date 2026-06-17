@@ -17,12 +17,17 @@ class KlarisApiClient:
         api_url: str,
         timeout_seconds: float = 30.0,
         bot_api_key: str = "",
+        admin_api_key: str = "",
     ) -> None:
         self.api_url = api_url.rstrip("/")
         self.bot_api_key = bot_api_key
+        self.admin_api_key = admin_api_key
         headers: dict[str, str] = {}
         if bot_api_key:
             headers["X-Bot-Api-Key"] = bot_api_key
+        elif admin_api_key:
+            headers["X-Admin-Api-Key"] = admin_api_key
+        self.default_headers = headers
         self._client = httpx.AsyncClient(
             base_url=self.api_url,
             timeout=timeout_seconds,

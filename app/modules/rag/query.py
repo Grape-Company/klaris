@@ -27,6 +27,33 @@ TRAILING_SUBJECT_WORDS = {
     "obtainment",
     "progression",
 }
+DOMAIN_QUALIFIERS = {
+    "attunement": "attunement",
+    "attunements": "attunement",
+    "boss": "boss",
+    "bosses": "boss",
+    "drop": "drop",
+    "drops": "drop",
+    "item": "item",
+    "items": "item",
+    "location": "location",
+    "locations": "location",
+    "mantra": "mantra",
+    "mantras": "mantra",
+    "npc": "npc",
+    "npcs": "npc",
+    "obtainment": "obtainment",
+    "oath": "oath",
+    "oaths": "oath",
+    "quest": "quest",
+    "quests": "quest",
+    "requirement": "requirement",
+    "requirements": "requirement",
+    "talent": "talent",
+    "talents": "talent",
+    "weapon": "weapon",
+    "weapons": "weapon",
+}
 INVALID_SUBJECT_WORDS = {
     "como",
     "conseguir",
@@ -103,6 +130,7 @@ class QueryIntent:
     clean_query: str
     language: Language
     subjects: list[str]
+    qualifiers: list[str]
 
 
 def analyze_query(query: str) -> QueryIntent:
@@ -112,6 +140,7 @@ def analyze_query(query: str) -> QueryIntent:
         clean_query=clean_query,
         language=preferred_language(clean_query),
         subjects=extract_subjects(clean_query),
+        qualifiers=extract_qualifiers(clean_query),
     )
 
 
@@ -148,6 +177,15 @@ def extract_subjects(query: str) -> list[str]:
                 subjects.append(subject)
 
     return list(dict.fromkeys(subjects))
+
+
+def extract_qualifiers(query: str) -> list[str]:
+    qualifiers: list[str] = []
+    for token in re.findall(r"[A-Za-z][A-Za-z'-]*", query.casefold()):
+        qualifier = DOMAIN_QUALIFIERS.get(token)
+        if qualifier:
+            qualifiers.append(qualifier)
+    return list(dict.fromkeys(qualifiers))
 
 
 def normalize_subject(subject: str) -> str:

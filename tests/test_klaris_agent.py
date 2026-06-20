@@ -433,6 +433,45 @@ async def test_ask_returns_not_found_when_model_answer_is_empty() -> None:
 
 
 @pytest.mark.asyncio
+async def test_ask_expands_entity_domain_query_when_rewrite_drops_oath() -> None:
+    oath_chunk: RetrievedChunk = {
+        "id": uuid4(),
+        "chunk_index": 2,
+        "heading": "Oath",
+        "content": (
+            "Page: Chainwarden\n"
+            "Section: Oath\n"
+            "Chainwarden is described here as an Oath with archive-supported details."
+        ),
+        "token_count": 15,
+        "page_title": "Chainwarden",
+        "page_url": "https://deepwoken.fandom.com/wiki/Chainwarden",
+        "score": 0.98,
+    }
+    retriever = QueryAwareFakeRetriever(
+        {
+            "Chainwarden": [],
+            "Chainwarden oath": [oath_chunk],
+        }
+    )
+    agent = FakeKlarisAgent(
+        retriever=retriever,
+        responses=[
+            FakeCompletion("Chainwarden"),
+            FakeCompletion("Chainwarden is described by the archive result as an Oath."),
+        ],
+    )
+
+    response = await agent.ask("Chainwarden oath", top_k=8)
+
+    assert retriever.calls == [
+        ("Chainwarden oath", 8),
+    ]
+    assert "Oath" in response.response
+    assert response.sources[0].title == "Chainwarden"
+
+
+@pytest.mark.asyncio
 async def test_chat_routes_text_tool_call_to_internal_ask() -> None:
     retriever = FakeRetriever()
     agent = FakeKlarisAgent(

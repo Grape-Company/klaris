@@ -27,7 +27,12 @@ from app.modules.rag.query import (
     small_talk_answer,
 )
 from app.modules.rag.repository import RAGImprovementRepository
-from app.modules.rag.retriever import RetrievedChunk, Retriever, merge_ranked_chunks
+from app.modules.rag.retriever import (
+    RetrievedChunk,
+    Retriever,
+    expanded_search_queries,
+    merge_ranked_chunks,
+)
 from app.modules.rag.source_selection import filter_evidence_chunks, select_source_chunks
 
 TRUNCATION_SUFFIX = "\n\n[resposta truncada]"
@@ -253,6 +258,29 @@ def _query_log_metadata(value: str) -> dict[str, int | bool]:
     }
 
 
+def search_query_candidates(
+    *,
+    original_question: str,
+    rewritten_query: str,
+) -> list[str]:
+    original_intent = analyze_query(original_question)
+    rewritten_intent = analyze_query(rewritten_query)
+    original_qualifiers = set(original_intent.qualifiers)
+    rewritten_qualifiers = set(rewritten_intent.qualifiers)
+
+    candidates: list[str] = []
+    if original_qualifiers and not original_qualifiers.issubset(rewritten_qualifiers):
+        candidates.append(original_question)
+        candidates.extend(expanded_search_queries(original_question))
+        candidates.extend(expanded_search_queries(rewritten_query))
+    else:
+        candidates.extend(expanded_search_queries(rewritten_query))
+        candidates.append(original_question)
+        candidates.extend(expanded_search_queries(original_question))
+
+    return list(dict.fromkeys(candidate for candidate in candidates if candidate))
+
+
 class KlarisAgent:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -445,30 +473,16 @@ class KlarisAgent:
             top_k=top_k,
             **_query_log_metadata(search_query),
         )
-        try:
-            chunks = await asyncio.wait_for(
-                self.retriever.search(search_query, top_k),
-                timeout=settings.rag_request_timeout_seconds,
-            )
-        except TimeoutError as exc:
-            raise RAGError("RAG retrieval timeout") from exc
-        except APIError as exc:
-            raise RAGError("Embedding provider unavailable") from exc
-
-        evidence_chunks = filter_evidence_chunks(chunks)
-        selected_chunks = select_source_chunks(evidence_chunks)
-        if (
-            not evidence_chunks or not selected_chunks
-        ) and search_query.casefold() != question.casefold():
-            logger.info(
-                "klaris_search_retrying_original_question",
-                chunk_count=len(chunks),
-                search_query_length=len(search_query),
-                original_question_length=len(question),
-            )
+        chunks: list[RetrievedChunk] = []
+        evidence_chunks: list[RetrievedChunk] = []
+        selected_chunks: list[RetrievedChunk] = []
+        for candidate_query in search_query_candidates(
+            original_question=question,
+            rewritten_query=search_query,
+        ):
             try:
-                original_chunks = await asyncio.wait_for(
-                    self.retriever.search(question, top_k),
+                candidate_chunks = await asyncio.wait_for(
+                    self.retriever.search(candidate_query, top_k),
                     timeout=settings.rag_request_timeout_seconds,
                 )
             except TimeoutError as exc:
@@ -476,9 +490,11 @@ class KlarisAgent:
             except APIError as exc:
                 raise RAGError("Embedding provider unavailable") from exc
 
-            chunks = merge_ranked_chunks(original_chunks, chunks, top_k)
+            chunks = merge_ranked_chunks(chunks, candidate_chunks, top_k)
             evidence_chunks = filter_evidence_chunks(chunks)
             selected_chunks = select_source_chunks(evidence_chunks)
+            if evidence_chunks and selected_chunks:
+                break
 
         if not chunks:
             logger.warning(

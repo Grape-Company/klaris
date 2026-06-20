@@ -2,7 +2,25 @@
 
 ## Busca
 
-O retriever gera embedding da pergunta e consulta `wiki_chunks` com distância cosseno usando pgvector:
+O retriever usa busca híbrida. Primeiro ele analisa a pergunta para separar:
+
+- assunto principal, como `Chainwarden`;
+- qualificadores de domínio, como `Oath`, `requirements`, `drops`, `NPC` ou `location`;
+- consulta limpa para comparação textual.
+
+Depois ele cria variações de busca preservando entidade + qualificador. Exemplo:
+
+```text
+Chainwarden oath -> Chainwarden oath, Chainwarden Oath, Chainwarden
+```
+
+A busca lexical prioriza chunks que contenham o assunto e o qualificador no
+heading ou no conteúdo. Isso evita tratar uma página genérica de entidade como
+evidência forte quando a pergunta pede uma faceta específica, como Oath,
+requisitos ou drops.
+
+Em paralelo, o retriever gera embedding da pergunta e consulta `wiki_chunks`
+com distância cosseno usando pgvector:
 
 ```sql
 ORDER BY c.embedding <=> :embedding::vector
@@ -14,6 +32,9 @@ modelo de linguagem. Essa rota é administrativa e exige `X-Admin-Api-Key`.
 Usuários finais não chamam RAG diretamente. Eles usam `POST /api/klaris/chat`;
 quando a mensagem exige conhecimento de Deepwoken, Klaris executa a busca
 internamente.
+
+O agente da Klaris também tenta a pergunta original e expansões qualificadas
+quando a reescrita inicial do modelo fica fraca ou genérica demais.
 
 ## Prompt
 

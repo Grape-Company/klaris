@@ -24,18 +24,18 @@ def merge_ranked_chunks(
     vector_chunks: list[RetrievedChunk],
     top_k: int,
 ) -> list[RetrievedChunk]:
-    merged: list[RetrievedChunk] = []
-    seen: set[UUID] = set()
+    best_by_id: dict[UUID, tuple[int, RetrievedChunk]] = {}
 
-    for chunk in [*keyword_chunks, *vector_chunks]:
-        if chunk["id"] in seen:
-            continue
-        merged.append(chunk)
-        seen.add(chunk["id"])
-        if len(merged) >= top_k:
-            break
+    for index, chunk in enumerate([*keyword_chunks, *vector_chunks]):
+        current = best_by_id.get(chunk["id"])
+        if current is None or chunk["score"] > current[1]["score"]:
+            best_by_id[chunk["id"]] = (index, chunk)
 
-    return merged
+    ranked = sorted(
+        best_by_id.values(),
+        key=lambda item: (-item[1]["score"], item[0]),
+    )
+    return [chunk for _, chunk in ranked[:top_k]]
 
 
 class Retriever:
@@ -44,8 +44,12 @@ class Retriever:
         self.embedder = Embedder()
 
     async def search(self, query: str, top_k: int = 8) -> list[RetrievedChunk]:
-        intent = analyze_query(query)
-        keyword_chunks = await self._keyword_search(intent, top_k)
+        keyword_chunks: list[RetrievedChunk] = []
+        for search_query in expanded_search_queries(query):
+            intent = analyze_query(search_query)
+            query_chunks = await self._keyword_search(intent, top_k)
+            keyword_chunks = merge_ranked_chunks(keyword_chunks, query_chunks, top_k)
+
         vector_chunks = await self._vector_search(query, top_k)
 
         return merge_ranked_chunks(keyword_chunks, vector_chunks, top_k)
@@ -58,6 +62,7 @@ class Retriever:
         primary_subject = subjects[0] if subjects else intent.clean_query.casefold()
         subject_patterns = [f"%{subject}%" for subject in subjects]
         subject_suffix_patterns = [f"%/{subject}" for subject in subjects]
+        qualifier_patterns = [f"%{qualifier.casefold()}%" for qualifier in intent.qualifiers]
 
         sql = text("""
             SELECT
@@ -69,8 +74,29 @@ class Retriever:
                 p.title AS page_title,
                 p.url AS page_url,
                 CASE
+                    WHEN :has_subjects
+                        AND :has_qualifiers
+                        AND lower(coalesce(c.heading, '')) LIKE ANY(:subject_patterns)
+                        AND lower(coalesce(c.heading, '')) LIKE ANY(:qualifier_patterns)
+                        THEN 1.0
+                    WHEN :has_subjects
+                        AND :has_qualifiers
+                        AND lower(c.content) LIKE ANY(:subject_patterns)
+                        AND lower(c.content) LIKE ANY(:qualifier_patterns)
+                        THEN 0.99
+                    WHEN :has_subjects
+                        AND :has_qualifiers
+                        AND lower(p.title) LIKE ANY(:subject_patterns)
+                        AND lower(coalesce(c.heading, '')) LIKE ANY(:qualifier_patterns)
+                        THEN 0.98
+                    WHEN :has_subjects
+                        AND :has_qualifiers
+                        AND lower(p.title) LIKE ANY(:subject_patterns)
+                        AND lower(c.content) LIKE ANY(:qualifier_patterns)
+                        THEN 0.97
                     WHEN lower(p.title) = lower(:clean_query) THEN 1.0
-                    WHEN :has_subjects AND lower(p.title) = :primary_subject THEN 1.0
+                    WHEN :has_subjects AND lower(p.title) = :primary_subject
+                        THEN CASE WHEN :has_qualifiers THEN 0.89 ELSE 1.0 END
                     WHEN :has_subjects
                         AND lower(p.title) LIKE ANY(:subject_suffix_patterns) THEN 0.99
                     WHEN :has_subjects
@@ -89,7 +115,15 @@ class Retriever:
             FROM wiki_chunks c
             JOIN wiki_pages p ON p.id = c.page_id
             WHERE
-                (:has_subjects AND lower(p.title) LIKE ANY(:subject_patterns))
+                (:has_subjects
+                    AND :has_qualifiers
+                    AND lower(coalesce(c.heading, '')) LIKE ANY(:subject_patterns)
+                    AND lower(coalesce(c.heading, '')) LIKE ANY(:qualifier_patterns))
+                OR (:has_subjects
+                    AND :has_qualifiers
+                    AND lower(c.content) LIKE ANY(:subject_patterns)
+                    AND lower(c.content) LIKE ANY(:qualifier_patterns))
+                OR (:has_subjects AND lower(p.title) LIKE ANY(:subject_patterns))
                 OR (:has_subjects AND similarity(lower(p.title), :primary_subject) >= 0.55)
                 OR (:has_subjects AND lower(coalesce(c.heading, '')) LIKE ANY(:subject_patterns))
                 OR (NOT :has_subjects AND lower(p.title) LIKE ANY(:patterns))
@@ -107,7 +141,9 @@ class Retriever:
                 "primary_subject": primary_subject,
                 "subject_patterns": subject_patterns,
                 "subject_suffix_patterns": subject_suffix_patterns,
+                "qualifier_patterns": qualifier_patterns,
                 "has_subjects": bool(intent.subjects),
+                "has_qualifiers": bool(intent.qualifiers),
                 "top_k": top_k,
             },
         )
@@ -161,4 +197,20 @@ class Retriever:
 def keyword_patterns(intent: QueryIntent) -> list[str]:
     patterns = [f"%{intent.clean_query}%"] if intent.clean_query else []
     patterns.extend(f"%{subject}%" for subject in intent.subjects)
+    for subject in intent.subjects:
+        for qualifier in intent.qualifiers:
+            patterns.append(f"%{subject}%{qualifier}%")
+            patterns.append(f"%{qualifier}%{subject}%")
     return list(dict.fromkeys(patterns))
+
+
+def expanded_search_queries(query: str) -> list[str]:
+    intent = analyze_query(query)
+    queries = [intent.clean_query] if intent.clean_query else []
+
+    for subject in intent.subjects:
+        for qualifier in intent.qualifiers:
+            queries.append(f"{subject} {qualifier.title()}")
+        queries.append(subject)
+
+    return list(dict.fromkeys(q for q in queries if q))

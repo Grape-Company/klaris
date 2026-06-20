@@ -74,6 +74,13 @@ def test_analyze_query_extracts_subject_from_oath_requirements_query() -> None:
     assert intent.subjects == ["Blightsurger"]
 
 
+def test_analyze_query_keeps_oath_as_search_qualifier() -> None:
+    intent = analyze_query("Chainwarden oath")
+
+    assert intent.subjects == ["Chainwarden"]
+    assert intent.qualifiers == ["oath"]
+
+
 def test_needs_knowledge_search_routes_deepwoken_factual_questions() -> None:
     assert needs_knowledge_search("como conseguir a Oath Blightsurger?")
     assert not needs_knowledge_search("oi Klaris")

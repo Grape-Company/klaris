@@ -37,11 +37,18 @@ A ingestão é idempotente por `title UNIQUE`, `content_hash` e recriação dos 
 é factual sobre Deepwoken, o agente aciona internamente o fluxo RAG:
 
 ```text
-chat -> classificação factual -> reescrita de consulta -> retrieval -> seleção de fontes fortes -> LLM -> resposta com sources
+chat -> classificação factual -> reescrita de consulta -> expansão qualificada -> retrieval híbrido -> seleção de fontes fortes -> LLM -> resposta com sources
 ```
 
 `/api/rag/search` existe apenas para debug administrativo protegido por
 `X-Admin-Api-Key`. Não há `/api/rag/ask` público.
+
+O retrieval combina:
+
+- busca lexical por título, heading e conteúdo;
+- análise de assunto e qualificadores de domínio, como `Oath`, `requirements` e `drops`;
+- expansão de consultas quando a reescrita do modelo remove uma faceta importante;
+- busca vetorial por pgvector como complemento semântico.
 
 ## Fluxo de melhoria
 

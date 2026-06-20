@@ -1,5 +1,7 @@
 import time
 
+import pytest
+
 from bot.cache import LRUCache, ask_cache_key
 from bot.cogs.admin import broadcast, user_blacklist
 from bot.cogs.ask import AskCog
@@ -93,6 +95,7 @@ class FakeKlarisClient:
         self.ask_calls: list[tuple[str, int]] = []
         self.chat_calls: list[tuple[str, int, list[dict[str, str]] | None]] = []
         self.feedback_calls: list[tuple[str, str, str | None]] = []
+        self.chat_response: dict[str, object] = {"response": "answer", "sources": []}
 
     async def ask(self, question: str, top_k: int) -> dict[str, object]:
         self.ask_calls.append((question, top_k))
@@ -105,7 +108,7 @@ class FakeKlarisClient:
         history: list[dict[str, str]] | None = None,
     ) -> dict[str, object]:
         self.chat_calls.append((message, top_k, history))
-        return {"response": "answer", "sources": []}
+        return self.chat_response
 
     async def health(self) -> dict[str, str]:
         return {"status": "ok"}
@@ -554,6 +557,45 @@ async def test_chat_sends_existing_conversation_history_to_api() -> None:
                 {"role": "assistant", "content": "It averages invested points."},
             ],
         ),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_chat_stores_source_titles_in_internal_history() -> None:
+    guard = BotGuard(
+        user_limiter=WindowRateLimiter(limit=5, window_seconds=60),
+        channel_limiter=WindowRateLimiter(limit=10, window_seconds=60),
+        global_limiter=WindowRateLimiter(limit=10, window_seconds=60),
+        blacklisted_users=set(),
+        blacklisted_guilds=set(),
+    )
+    bot = FakeBot(guard=guard)
+    bot.klaris_client.chat_response = {
+        "response": "Duke Erisia is a humanoid boss.",
+        "sources": [
+            {
+                "title": "Duke Erisia",
+                "url": "https://deepwoken.fandom.com/wiki/Duke_Erisia",
+                "chunk_id": "chunk-1",
+            }
+        ],
+    }
+    store = ConversationStore(max_turns=10)
+    cog = ChatCog(
+        bot=bot,
+        klaris_client=bot.klaris_client,
+        conversation_store=store,
+    )
+    interaction = FakeInteraction()
+
+    await cog.chat.callback(cog, interaction, "who is Duke of Erisia?")
+
+    assert store.get_history(str(interaction.user.id)) == [
+        {"role": "user", "content": "who is Duke of Erisia?"},
+        {
+            "role": "assistant",
+            "content": "Duke Erisia is a humanoid boss.\nSource pages: Duke Erisia",
+        },
     ]
 
 

@@ -21,6 +21,27 @@ MAX_MESSAGE_LENGTH = 2000
 MIN_MESSAGE_LENGTH = 1
 
 
+def build_memory_content(response: str, sources: Sequence[dict[str, object]]) -> str:
+    titles: list[str] = []
+    for source in sources:
+        title = source.get("title")
+        if isinstance(title, str) and title and title not in titles:
+            titles.append(title)
+
+    if not titles:
+        return response
+
+    source_line = f"Source pages: {', '.join(titles[:5])}"
+    content = f"{response}\n{source_line}"
+    if len(content) <= MAX_MESSAGE_LENGTH:
+        return content
+
+    available_response_chars = MAX_MESSAGE_LENGTH - len(source_line) - 1
+    if available_response_chars <= 0:
+        return source_line[:MAX_MESSAGE_LENGTH]
+    return f"{response[:available_response_chars].rstrip()}\n{source_line}"
+
+
 class ConversationStore:
     """Simple in-memory conversation history store with TTL support."""
 
@@ -125,7 +146,11 @@ class ChatCog(commands.Cog):
         answer_id_raw: object = payload.get("answer_id")
         answer_id: str | None = str(answer_id_raw) if answer_id_raw else None
 
-        self.conversation_store.add_message(user_id, "assistant", response)
+        self.conversation_store.add_message(
+            user_id,
+            "assistant",
+            build_memory_content(response, sources_raw),
+        )
 
         if not response:
             embed = build_error_embed(

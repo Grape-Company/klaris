@@ -37,6 +37,11 @@ logger = structlog.get_logger()
 ASK_SEARCH_QUERY_SYSTEM_PROMPT = """You rewrite Deepwoken questions into search queries.
 
 Return only one concise English search query for the Deepwoken Wiki archive.
+If conversation history is provided, resolve the current user message into a
+standalone search query using the most recent relevant Deepwoken subject from
+that history. Replace contextual references such as pronouns or generic nouns
+with the canonical subject name. Ignore history when the current user message
+already names a different explicit subject.
 Preserve canonical Deepwoken terms in English.
 Translate non-English wording into likely English Deepwoken terminology.
 Correct obvious spelling variants when a canonical term is likely.
@@ -49,52 +54,6 @@ Return only one concise English search query using likely canonical Deepwoken
 Wiki terminology. Translate any non-English words into English game/wiki terms.
 Do not answer the question. Do not add explanations. Do not use quotes."""
 
-FOLLOWUP_PRONOUNS = {
-    "its",
-    "his",
-    "her",
-    "their",
-    "them",
-    "ele",
-    "ela",
-    "eles",
-    "elas",
-    "dele",
-    "dela",
-    "deles",
-    "delas",
-    "seu",
-    "sua",
-    "seus",
-    "suas",
-}
-GENERIC_SEARCH_WORDS = {
-    "describe",
-    "descreva",
-    "explain",
-    "explique",
-    "list",
-    "liste",
-    "show",
-    "mostre",
-    "what",
-    "which",
-    "qual",
-    "quais",
-    "are",
-    "is",
-    "the",
-    "a",
-    "an",
-    "o",
-    "os",
-    "as",
-    "de",
-    "do",
-    "da",
-    "dos",
-    "das",
-}
 SUBJECT_ALIASES = {
     "duke of erisia": "Duke Erisia",
 }
@@ -224,10 +183,6 @@ def _meaningful_tokens(value: str) -> set[str]:
     return {token.casefold() for token in re.findall(r"[A-Za-zÀ-ÿ']+", value) if len(token) > 2}
 
 
-def _ordered_meaningful_tokens(value: str) -> list[str]:
-    return [token for token in re.findall(r"[A-Za-zÀ-ÿ']+", value) if len(token) > 2]
-
-
 def _canonical_subject(subject: str) -> str:
     cleaned = " ".join(subject.split()).strip(" \"'`?.!,")
     return SUBJECT_ALIASES.get(cleaned.casefold(), cleaned)
@@ -240,13 +195,22 @@ def _query_mentions_subject(query: str, subject: str) -> bool:
 
 
 def _is_contextual_followup(message: str) -> bool:
-    tokens = _meaningful_tokens(message)
-    return bool(tokens.intersection(FOLLOWUP_PRONOUNS))
+    intent = analyze_query(message)
+    return bool(message.strip()) and not intent.subjects
 
 
 def _recent_history_subject(history: Sequence[dict[str, str]] | None) -> str | None:
     if not history:
         return None
+
+    for turn in reversed(history):
+        content = turn.get("content", "")
+        match = re.search(r"(?im)^source pages?:\s*(.+)$", content)
+        if match:
+            first_source = match.group(1).split(",")[0]
+            subject = _canonical_subject(first_source)
+            if subject:
+                return subject
 
     for turn in reversed(history):
         if turn.get("role") != "user":
@@ -278,22 +242,7 @@ def _contextualize_search_query(
     ):
         return search_query
 
-    query_tokens = [
-        token
-        for token in _ordered_meaningful_tokens(search_query)
-        if token.casefold() not in FOLLOWUP_PRONOUNS
-        and token.casefold() not in GENERIC_SEARCH_WORDS
-    ]
-    if not query_tokens:
-        query_tokens = [
-            token
-            for token in _ordered_meaningful_tokens(question)
-            if token.casefold() not in FOLLOWUP_PRONOUNS
-            and token.casefold() not in GENERIC_SEARCH_WORDS
-        ]
-
-    tail = " ".join(query_tokens).strip()
-    return f"{subject} {tail}".strip()
+    return f"{subject} {search_query}".strip()
 
 
 def _query_log_metadata(value: str) -> dict[str, int | bool]:
